@@ -32,15 +32,15 @@ impl LLMProvider for OllamaProvider {
         // Default models - actual models depend on what's installed locally
         vec![
             ModelInfo {
-                id: "llama3.3".to_string(),
-                name: "Llama 3.3".to_string(),
+                id: "llama4".to_string(),
+                name: "Llama 4".to_string(),
                 provider: ProviderType::Ollama,
                 max_tokens: 128000,
                 supports_streaming: true,
             },
             ModelInfo {
-                id: "qwen2.5-coder".to_string(),
-                name: "Qwen 2.5 Coder".to_string(),
+                id: "qwen3".to_string(),
+                name: "Qwen 3".to_string(),
                 provider: ProviderType::Ollama,
                 max_tokens: 128000,
                 supports_streaming: true,
@@ -53,10 +53,10 @@ impl LLMProvider for OllamaProvider {
                 supports_streaming: true,
             },
             ModelInfo {
-                id: "codellama".to_string(),
-                name: "Code Llama".to_string(),
+                id: "gemma3".to_string(),
+                name: "Gemma 3".to_string(),
                 provider: ProviderType::Ollama,
-                max_tokens: 16384,
+                max_tokens: 128000,
                 supports_streaming: true,
             },
         ]

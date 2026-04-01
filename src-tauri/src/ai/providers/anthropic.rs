@@ -33,22 +33,22 @@ impl LLMProvider for AnthropicProvider {
     fn available_models(&self) -> Vec<ModelInfo> {
         vec![
             ModelInfo {
-                id: "claude-sonnet-4-5-20250929".to_string(),
-                name: "Claude 4.5 Sonnet".to_string(),
+                id: "claude-opus-4-6".to_string(),
+                name: "Claude Opus 4.6".to_string(),
                 provider: ProviderType::Anthropic,
-                max_tokens: 200000,
+                max_tokens: 1000000,
                 supports_streaming: true,
             },
             ModelInfo {
-                id: "claude-opus-4-5-20251101".to_string(),
-                name: "Claude 4.5 Opus".to_string(),
+                id: "claude-sonnet-4-6".to_string(),
+                name: "Claude Sonnet 4.6".to_string(),
                 provider: ProviderType::Anthropic,
-                max_tokens: 200000,
+                max_tokens: 1000000,
                 supports_streaming: true,
             },
             ModelInfo {
-                id: "claude-haiku-4-5-20251001".to_string(),
-                name: "Claude 4.5 Haiku".to_string(),
+                id: "claude-haiku-4-5".to_string(),
+                name: "Claude Haiku 4.5".to_string(),
                 provider: ProviderType::Anthropic,
                 max_tokens: 200000,
                 supports_streaming: true,
