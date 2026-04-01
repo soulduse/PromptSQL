@@ -33,15 +33,22 @@ impl LLMProvider for OpenAIProvider {
     fn available_models(&self) -> Vec<ModelInfo> {
         vec![
             ModelInfo {
-                id: "gpt-5.2".to_string(),
-                name: "GPT-5.2".to_string(),
+                id: "gpt-5.4".to_string(),
+                name: "GPT-5.4".to_string(),
                 provider: ProviderType::OpenAI,
                 max_tokens: 128000,
                 supports_streaming: true,
             },
             ModelInfo {
-                id: "gpt-5-mini".to_string(),
-                name: "GPT-5 Mini".to_string(),
+                id: "gpt-5.4-mini".to_string(),
+                name: "GPT-5.4 Mini".to_string(),
+                provider: ProviderType::OpenAI,
+                max_tokens: 128000,
+                supports_streaming: true,
+            },
+            ModelInfo {
+                id: "o4-mini".to_string(),
+                name: "o4 Mini".to_string(),
                 provider: ProviderType::OpenAI,
                 max_tokens: 128000,
                 supports_streaming: true,
@@ -49,13 +56,6 @@ impl LLMProvider for OpenAIProvider {
             ModelInfo {
                 id: "gpt-4o".to_string(),
                 name: "GPT-4o".to_string(),
-                provider: ProviderType::OpenAI,
-                max_tokens: 128000,
-                supports_streaming: true,
-            },
-            ModelInfo {
-                id: "gpt-4o-mini".to_string(),
-                name: "GPT-4o Mini".to_string(),
                 provider: ProviderType::OpenAI,
                 max_tokens: 128000,
                 supports_streaming: true,

@@ -33,15 +33,15 @@ impl LLMProvider for GeminiProvider {
     fn available_models(&self) -> Vec<ModelInfo> {
         vec![
             ModelInfo {
-                id: "gemini-3-pro-preview".to_string(),
-                name: "Gemini 3 Pro".to_string(),
+                id: "gemini-3.1-pro-preview".to_string(),
+                name: "Gemini 3.1 Pro".to_string(),
                 provider: ProviderType::Gemini,
-                max_tokens: 2000000,
+                max_tokens: 1000000,
                 supports_streaming: true,
             },
             ModelInfo {
-                id: "gemini-3-flash-preview".to_string(),
-                name: "Gemini 3 Flash".to_string(),
+                id: "gemini-3.1-flash-lite-preview".to_string(),
+                name: "Gemini 3.1 Flash Lite".to_string(),
                 provider: ProviderType::Gemini,
                 max_tokens: 1000000,
                 supports_streaming: true,

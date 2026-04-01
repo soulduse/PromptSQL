@@ -17,10 +17,10 @@ An AI-powered MySQL client built with Tauri 2.x, React, and Rust.
 
 ## Supported AI Providers
 
-- **OpenAI** -- GPT-4o, GPT-4o mini
-- **Anthropic** -- Claude Sonnet, Claude Haiku
-- **Google Gemini** -- Gemini Pro, Gemini Flash
-- **Ollama** -- Local models (no API key required)
+- **OpenAI** -- GPT-5.4, GPT-5.4 Mini, o4 Mini, GPT-4o
+- **Anthropic** -- Claude Opus 4.6, Claude Sonnet 4.6, Claude Haiku 4.5
+- **Google Gemini** -- Gemini 3.1 Pro, Gemini 3.1 Flash Lite, Gemini 2.5 Pro/Flash
+- **Ollama** -- Llama 4, Qwen 3, DeepSeek R1, Gemma 3 (no API key required)
 
 All API keys are stored securely in your system's native keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service).
 

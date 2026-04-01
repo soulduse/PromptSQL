@@ -349,7 +349,7 @@ const getSavedProvider = (): LLMProvider => {
 };
 
 const getSavedModel = (): string => {
-  return localStorage.getItem(MODEL_KEY) || "gpt-4o-mini"; // Default model
+  return localStorage.getItem(MODEL_KEY) || "gpt-5.4-mini"; // Default model
 };
 
 const saveProviderAndModel = (provider: LLMProvider, model: string) => {

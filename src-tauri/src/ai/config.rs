@@ -27,7 +27,7 @@ impl Default for AIConfig {
     fn default() -> Self {
         Self {
             provider: ProviderType::OpenAI,
-            model: "gpt-4o-mini".to_string(),
+            model: "gpt-5.4-mini".to_string(),
             temperature: 0.7,
             max_tokens: 4096,
         }

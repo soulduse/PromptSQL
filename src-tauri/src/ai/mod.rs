@@ -33,7 +33,7 @@ impl AIManager {
             gemini: GeminiProvider::new(),
             ollama: OllamaProvider::new(),
             current_provider: ProviderType::OpenAI,
-            current_model: "gpt-4o-mini".to_string(),
+            current_model: "gpt-5.4-mini".to_string(),
         }
     }
 
