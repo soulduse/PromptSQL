@@ -1,0 +1,65 @@
+[package]
+name = "promptsql"
+version = "0.1.0"
+description = "PromptSQL - AI-Powered MySQL Client"
+authors = ["soulduse"]
+license = "MIT"
+repository = "https://github.com/soulduse/PromptSQL"
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "promptsql_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "PromptSQL"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2.5.3", features = [] }
+
+[dependencies]
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+log = "0.4"
+tauri = { version = "2.9.5", features = [] }
+tauri-plugin-log = "2"
+
+# MySQL connection
+mysql_async = "0.34"
+
+# HTTP client for AI APIs
+reqwest = { version = "0.12", features = ["json", "stream", "multipart"] }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Error handling
+thiserror = "2.0"
+anyhow = "1.0"
+
+# Storage & Keychain
+keyring = { version = "3", features = ["apple-native"] }
+dirs = "6.0"
+
+# UUID & DateTime
+uuid = { version = "1", features = ["v4"] }
+chrono = "0.4"
+
+# AI/LLM support
+async-trait = "0.1"
+futures-util = "0.3"
+tauri-plugin-opener = "2.5.2"
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+
+# OAuth (Claude Pro/Max)
+rand = "0.8"
+base64 = "0.22"
+sha2 = "0.10"
+urlencoding = "2.1"
+tiny_http = "0.12"
+open = "5"
+once_cell = "1.19"
+regex = "1.12.2"
