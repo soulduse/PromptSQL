@@ -972,7 +972,7 @@ export function StructureView({
 
                 return (
                     <tr
-                      key={index}
+                      key={col.field}
                       data-row-index={index}
                       onMouseDown={(e) => handleRowMouseDown(e, index)}
                       onClick={(e) => !isDragging && handleColumnRowClick(index, e)}
@@ -1442,11 +1442,11 @@ export function StructureView({
                 </tr>
               </thead>
               <tbody>
-                {indexes.map((idx, i) => {
+                {indexes.map((idx) => {
                   const isSelected = selectedIndexKey === idx.key_name;
                   return (
                     <tr
-                      key={i}
+                      key={`${idx.key_name}-${idx.seq_in_index}`}
                       onClick={() => setSelectedIndexKey(idx.key_name)}
                       onContextMenu={(e) => handleIndexContextMenu(e, idx)}
                       className={`border-b border-gray-800 cursor-pointer ${

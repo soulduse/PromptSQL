@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { ColumnInfo } from "../../stores/tabStore";
+import { useClampedPosition } from "../../hooks/useClampedPosition";
 import {
   CopyIcon,
   ChevronRightIcon,
@@ -51,33 +52,7 @@ export function RowContextMenu({
   const menuRef = useRef<HTMLDivElement>(null);
   const [showBundlesSubmenu, setShowBundlesSubmenu] = useState(false);
   const [showCopySubmenu, setShowCopySubmenu] = useState(false);
-  const [position, setPosition] = useState({ x, y });
-
-  // Adjust position to keep menu within viewport
-  useEffect(() => {
-    if (menuRef.current) {
-      const menuRect = menuRef.current.getBoundingClientRect();
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
-
-      let newX = x;
-      let newY = y;
-
-      // Adjust horizontal position
-      if (x + menuRect.width > viewportWidth) {
-        newX = viewportWidth - menuRect.width - 10;
-      }
-
-      // Adjust vertical position
-      if (y + menuRect.height > viewportHeight) {
-        newY = viewportHeight - menuRect.height - 10;
-      }
-
-      if (newX !== x || newY !== y) {
-        setPosition({ x: newX, y: newY });
-      }
-    }
-  }, [x, y]);
+  const position = useClampedPosition(menuRef, x, y);
 
   // Close on click outside or ESC
   useEffect(() => {

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
 import { useTabStore } from "../../stores/tabStore";
 import { CheckIcon, CopyIcon, EditIcon, PlayIcon } from "../common/Icons";
@@ -87,21 +87,37 @@ export function highlightSQL(code: string, isDark: boolean): React.ReactNode[] {
   return result;
 }
 
-// Hook to detect theme changes
-export function useTheme() {
-  const [isDark, setIsDark] = useState(() =>
-    document.documentElement.classList.contains('dark')
-  );
+// 테마 변경 감지 — 컴포넌트 인스턴스마다 MutationObserver를 만들지 않도록
+// 모듈 레벨 싱글톤 스토어 하나를 전 구독자가 공유한다
+const themeListeners = new Set<() => void>();
+let themeObserver: MutationObserver | null = null;
 
-  useEffect(() => {
-    const observer = new MutationObserver(() => {
-      setIsDark(document.documentElement.classList.contains('dark'));
+function subscribeTheme(callback: () => void) {
+  themeListeners.add(callback);
+  if (!themeObserver) {
+    themeObserver = new MutationObserver(() => {
+      themeListeners.forEach((listener) => listener());
     });
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
-    return () => observer.disconnect();
-  }, []);
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class'],
+    });
+  }
+  return () => {
+    themeListeners.delete(callback);
+    if (themeListeners.size === 0) {
+      themeObserver?.disconnect();
+      themeObserver = null;
+    }
+  };
+}
 
-  return isDark;
+function getThemeSnapshot(): boolean {
+  return document.documentElement.classList.contains('dark');
+}
+
+export function useTheme() {
+  return useSyncExternalStore(subscribeTheme, getThemeSnapshot);
 }
 
 interface CodeBlockProps {

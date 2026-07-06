@@ -3,6 +3,59 @@ import Editor, { Monaco } from "@monaco-editor/react";
 import type { editor, Position, IRange } from "monaco-editor";
 import { SQL_KEYWORDS, SQL_FUNCTIONS } from "./sqlKeywords";
 
+// SQL 자동완성 provider는 앱 전체에 1회만 등록한다 — 에디터(탭)마다
+// 등록하면 같은 제안이 열린 탭 수만큼 중복 노출된다. 테이블 목록은
+// model별 Map으로 관리해 각 에디터가 자기 테이블만 제안받는다.
+const modelTables = new Map<editor.ITextModel, string[]>();
+let completionProviderRegistered = false;
+
+function ensureCompletionProvider(monaco: Monaco) {
+  if (completionProviderRegistered) return;
+  completionProviderRegistered = true;
+
+  monaco.languages.registerCompletionItemProvider("sql", {
+    provideCompletionItems: (model: editor.ITextModel, position: Position) => {
+      const word = model.getWordUntilPosition(position);
+      const range: IRange = {
+        startLineNumber: position.lineNumber,
+        endLineNumber: position.lineNumber,
+        startColumn: word.startColumn,
+        endColumn: word.endColumn,
+      };
+
+      const suggestions = [
+        // SQL Keywords
+        ...SQL_KEYWORDS.map((keyword) => ({
+          label: keyword,
+          kind: monaco.languages.CompletionItemKind.Keyword,
+          insertText: keyword + " ",
+          range,
+          sortText: "1" + keyword, // Sort keywords first
+        })),
+        // SQL Functions
+        ...SQL_FUNCTIONS.map((func) => ({
+          label: func,
+          kind: monaco.languages.CompletionItemKind.Function,
+          insertText: func + " ",
+          range,
+          sortText: "2" + func, // Sort functions second
+        })),
+        // Table names for this editor's model
+        ...(modelTables.get(model) ?? []).map((table) => ({
+          label: table,
+          kind: monaco.languages.CompletionItemKind.Class,
+          insertText: `\`${table}\` `,
+          detail: "Table",
+          range,
+          sortText: "0" + table, // Sort tables at top
+        })),
+      ];
+
+      return { suggestions };
+    },
+  });
+}
+
 export interface SelectionInfo {
   text: string;
   position: { top: number; left: number };
@@ -81,7 +134,6 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
   const monacoRef = useRef<Monaco | null>(null);
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const providerRef = useRef<{ dispose: () => void } | null>(null);
   const tablesRef = useRef<string[]>(tables);
   const onSelectionChangeRef = useRef(onSelectionChange);
 
@@ -151,6 +203,10 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
   // Update tablesRef when tables change
   useEffect(() => {
     tablesRef.current = tables;
+    const model = editorRef.current?.getModel();
+    if (model) {
+      modelTables.set(model, tables);
+    }
   }, [tables]);
 
   const handleEditorMount = (editorInstance: editor.IStandaloneCodeEditor, monaco: Monaco) => {
@@ -261,54 +317,21 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
       },
     });
 
-    // Register SQL autocomplete provider
-    providerRef.current = monaco.languages.registerCompletionItemProvider("sql", {
-      provideCompletionItems: (model: editor.ITextModel, position: Position) => {
-        const word = model.getWordUntilPosition(position);
-        const range: IRange = {
-          startLineNumber: position.lineNumber,
-          endLineNumber: position.lineNumber,
-          startColumn: word.startColumn,
-          endColumn: word.endColumn,
-        };
-
-        const suggestions = [
-          // SQL Keywords
-          ...SQL_KEYWORDS.map((keyword) => ({
-            label: keyword,
-            kind: monaco.languages.CompletionItemKind.Keyword,
-            insertText: keyword + " ",
-            range,
-            sortText: "1" + keyword, // Sort keywords first
-          })),
-          // SQL Functions
-          ...SQL_FUNCTIONS.map((func) => ({
-            label: func,
-            kind: monaco.languages.CompletionItemKind.Function,
-            insertText: func + " ",
-            range,
-            sortText: "2" + func, // Sort functions second
-          })),
-          // Table names (use ref to always get latest tables)
-          ...tablesRef.current.map((table) => ({
-            label: table,
-            kind: monaco.languages.CompletionItemKind.Class,
-            insertText: `\`${table}\` `,
-            detail: "Table",
-            range,
-            sortText: "0" + table, // Sort tables at top
-          })),
-        ];
-
-        return { suggestions };
-      },
-    });
+    // SQL autocomplete: 전역 provider 1회 등록 + 이 에디터의 테이블 목록 연결
+    ensureCompletionProvider(monaco);
+    const model = editorInstance.getModel();
+    if (model) {
+      modelTables.set(model, tablesRef.current);
+    }
   };
 
-  // Cleanup provider on unmount
+  // Cleanup: 이 에디터의 테이블 매핑만 해제 (provider는 전역 공유라 유지)
   useEffect(() => {
     return () => {
-      providerRef.current?.dispose();
+      const model = editorRef.current?.getModel();
+      if (model) {
+        modelTables.delete(model);
+      }
     };
   }, []);
 

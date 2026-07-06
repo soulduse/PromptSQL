@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect, useMemo, memo } from "react";
 import { useTranslation } from "react-i18next";
 import ReactMarkdown, { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -203,7 +203,9 @@ const createMarkdownComponents = (
   },
 });
 
-export default function ChatMessageItem({ message, onEdit, onRetry, onDelete, onMentionClick }: ChatMessageItemProps) {
+// memo: 스트리밍 중 스토어가 매 청크마다 messages 배열을 갱신하지만
+// 변경된 메시지 객체만 새 참조라, 나머지 메시지는 리렌더를 건너뛴다
+const ChatMessageItem = memo(function ChatMessageItem({ message, onEdit, onRetry, onDelete, onMentionClick }: ChatMessageItemProps) {
   const { t } = useTranslation();
   const isUser = message.role === "user";
 
@@ -227,6 +229,12 @@ export default function ChatMessageItem({ message, onEdit, onRetry, onDelete, on
   const markdownComponents = useMemo(
     () => createMarkdownComponents(onMentionClick),
     [onMentionClick]
+  );
+
+  // AUTO 쿼리 결과 파싱은 콘텐츠가 바뀔 때만 — 토큰당 재파싱 방지
+  const parsedParts = useMemo(
+    () => (isUser ? [] : parseAutoQueryResults(processedContent)),
+    [isUser, processedContent]
   );
 
   const [isEditing, setIsEditing] = useState(false);
@@ -377,7 +385,7 @@ export default function ChatMessageItem({ message, onEdit, onRetry, onDelete, on
             </ReactMarkdown>
           ) : (
             // Assistant messages: parse AUTO query results
-            parseAutoQueryResults(processedContent).map((part, partIndex) => {
+            parsedParts.map((part, partIndex) => {
               if (part.type === "auto_query_result" && part.queryData) {
                 return (
                   <AutoQueryResult
@@ -467,4 +475,6 @@ export default function ChatMessageItem({ message, onEdit, onRetry, onDelete, on
       </div>
     </div>
   );
-}
+});
+
+export default ChatMessageItem;

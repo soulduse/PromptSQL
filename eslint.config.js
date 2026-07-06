@@ -12,8 +12,11 @@ export default tseslint.config(
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
-      // Compiler-powered rules flag pre-existing render patterns slated for
-      // the render-optimization pass (Phase 8b); escalate to error afterwards.
+      // Compiler-powered rules flag ~78 pre-existing render patterns.
+      // The hot paths (streaming chat, theme observer, Monaco provider)
+      // were fixed in the 8b render pass; the long tail (StructureView
+      // static components etc.) is follow-up work — escalate to error
+      // once the count reaches zero.
       "react-hooks/static-components": "warn",
       "react-hooks/set-state-in-effect": "warn",
       "react-hooks/immutability": "warn",
