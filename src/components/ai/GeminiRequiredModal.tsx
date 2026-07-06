@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { KeyIcon, CloseIcon } from "../common/Icons";
+import { Modal } from "../common/Modal";
 
 interface GeminiRequiredModalProps {
   onClose: () => void;
@@ -13,8 +14,8 @@ export function GeminiRequiredModal({
   const { t } = useTranslation();
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-gray-800 rounded-lg p-6 max-w-md mx-4 border border-gray-700 shadow-xl">
+    <Modal isOpen onClose={onClose} size="md">
+      <div className="p-6">
         <div className="flex items-start gap-4">
           <div className="w-12 h-12 rounded-full bg-amber-500/10 flex items-center justify-center flex-shrink-0">
             <KeyIcon className="w-6 h-6 text-amber-500" />
@@ -44,11 +45,12 @@ export function GeminiRequiredModal({
           <button
             onClick={onClose}
             className="text-gray-400 hover:text-gray-200 transition-colors"
+            aria-label="Close"
           >
             <CloseIcon className="w-5 h-5" />
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

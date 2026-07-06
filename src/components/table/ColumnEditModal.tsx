@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 import { ColumnInfo } from "../../stores/tabStore";
 import { CustomSelect } from "../common/CustomSelect";
+import { Modal } from "../common/Modal";
 
 // MySQL data type definition
 interface MySQLType {
@@ -145,19 +146,6 @@ export function ColumnEditModal({
     }
   }, [isOpen, column]);
 
-  // ESC key handler
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (!isOpen) return;
-      if (e.key === "Escape") {
-        onClose();
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onClose]);
-
   // Build full column type from parts
   const columnType = useMemo(() => {
     return buildColumnType(baseType, length, isUnsigned);
@@ -221,8 +209,8 @@ export function ColumnEditModal({
   const isPrimaryKey = column.key === "PRI";
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-gray-800 rounded-lg w-full max-w-lg p-6 shadow-xl">
+    <Modal isOpen={isOpen} onClose={onClose} size="lg" closeOnBackdrop={false}>
+      <div className="p-6">
         <h2 className="text-xl font-bold mb-6">
           {t("columnEdit.title")}: <code className="text-blue-400">`{column.field}`</code>
         </h2>
@@ -381,6 +369,6 @@ export function ColumnEditModal({
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

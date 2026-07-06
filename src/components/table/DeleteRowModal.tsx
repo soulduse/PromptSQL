@@ -1,6 +1,7 @@
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { TrashIcon } from "../common/Icons";
+import { Modal } from "../common/Modal";
 
 interface DeleteRowModalProps {
   isOpen: boolean;
@@ -22,26 +23,6 @@ export function DeleteRowModal({
   const { t } = useTranslation();
   const deleteButtonRef = useRef<HTMLButtonElement>(null);
 
-  useEffect(() => {
-    if (isOpen && deleteButtonRef.current) {
-      deleteButtonRef.current.focus();
-    }
-  }, [isOpen]);
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (!isOpen) return;
-      if (e.key === "Escape") {
-        onCancel();
-      } else if (e.key === "Enter") {
-        onConfirm();
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onCancel, onConfirm]);
-
   if (!isOpen) return null;
 
   // Format cell value for display
@@ -52,16 +33,20 @@ export function DeleteRowModal({
     return str.length > 30 ? str.substring(0, 30) + "..." : str;
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/60"
-        onClick={onCancel}
-      />
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      onConfirm();
+    }
+  };
 
-      {/* Modal */}
-      <div className="relative bg-gray-800 rounded-lg shadow-xl border border-gray-700 w-full max-w-lg mx-4 p-6">
+  return (
+    <Modal
+      isOpen={isOpen}
+      onClose={onCancel}
+      size="lg"
+      initialFocusRef={deleteButtonRef}
+    >
+      <div className="p-6" onKeyDown={handleKeyDown}>
         {/* Warning Icon and Title */}
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2 bg-red-500/20 rounded-full">
@@ -129,6 +114,6 @@ export function DeleteRowModal({
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

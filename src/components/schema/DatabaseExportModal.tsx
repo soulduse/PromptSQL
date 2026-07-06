@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import { writeTextFile, mkdir, exists } from "@tauri-apps/plugin-fs";
 import { CloseIcon, FolderIcon } from "../common/Icons";
+import { Modal } from "../common/Modal";
 
 interface QueryResult {
   columns: string[];
@@ -312,195 +313,197 @@ export function DatabaseExportModal({
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      size="2xl"
+      skin={false}
+      panelClassName="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-h-[80vh] flex flex-col"
+    >
+      {/* Header */}
+      <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between flex-shrink-0">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{t("dbExport.title")}</h3>
+        <button onClick={onClose} className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white">
+          <CloseIcon className="w-5 h-5" />
+        </button>
+      </div>
 
-      <div className="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[80vh] flex flex-col">
-        {/* Header */}
-        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between flex-shrink-0">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{t("dbExport.title")}</h3>
-          <button onClick={onClose} className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white">
-            <CloseIcon className="w-5 h-5" />
-          </button>
+      {/* Content */}
+      <div className="px-6 py-4 space-y-4 overflow-auto flex-1">
+        {/* Format Tabs */}
+        <div className="flex gap-1 bg-gray-100 dark:bg-gray-900 p-1 rounded-lg">
+          {formatTabs.map(tab => (
+            <button
+              key={tab.key}
+              onClick={() => {
+                setFormat(tab.key);
+                setSavePath("");
+              }}
+              className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition ${
+                format === tab.key
+                  ? "bg-blue-600 text-white"
+                  : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-gray-700"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
 
-        {/* Content */}
-        <div className="px-6 py-4 space-y-4 overflow-auto flex-1">
-          {/* Format Tabs */}
-          <div className="flex gap-1 bg-gray-100 dark:bg-gray-900 p-1 rounded-lg">
-            {formatTabs.map(tab => (
-              <button
-                key={tab.key}
-                onClick={() => {
-                  setFormat(tab.key);
-                  setSavePath("");
-                }}
-                className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition ${
-                  format === tab.key
-                    ? "bg-blue-600 text-white"
-                    : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-gray-700"
+        {/* Save Path */}
+        <div className="space-y-2">
+          <label className="text-sm text-gray-600 dark:text-gray-400">{t("dbExport.savePath")}</label>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={savePath}
+              readOnly
+              placeholder={format === "csv" ? t("dbExport.selectFolder") : t("dbExport.selectFile")}
+              className="flex-1 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded px-3 py-2 text-sm text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-500"
+            />
+            <button
+              onClick={handleSelectPath}
+              className="px-4 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 border border-gray-300 dark:border-transparent rounded text-sm text-gray-700 dark:text-gray-200 flex items-center gap-2"
+            >
+              <FolderIcon className="w-4 h-4" />
+              {t("dbExport.browse")}
+            </button>
+          </div>
+        </div>
+
+        {/* Table List */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <label className="text-sm text-gray-600 dark:text-gray-400">{t("dbExport.tables")}</label>
+            <span className="text-xs text-gray-500">
+              {t("dbExport.selectedCount", { count: selectedCount })}
+            </span>
+          </div>
+
+          {/* Header Row */}
+          <div className="flex items-center gap-4 px-3 py-2 bg-gray-100 dark:bg-gray-900 rounded-t border border-gray-200 dark:border-gray-700 text-sm">
+            <label className="flex items-center gap-2 flex-1">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                onChange={toggleAll}
+                className="rounded bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600"
+              />
+              <span className="text-gray-600 dark:text-gray-400">{t("dbExport.selectAll")}</span>
+            </label>
+            {format === "sql" && (
+              <>
+                <label className="flex items-center gap-1 w-16">
+                  <input
+                    type="checkbox"
+                    checked={allStructure}
+                    onChange={toggleAllStructure}
+                    className="rounded bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600"
+                  />
+                  <span className="text-gray-600 dark:text-gray-400 text-xs">S</span>
+                </label>
+                <label className="flex items-center gap-1 w-16">
+                  <input
+                    type="checkbox"
+                    checked={allContent}
+                    onChange={toggleAllContent}
+                    className="rounded bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600"
+                  />
+                  <span className="text-gray-600 dark:text-gray-400 text-xs">C</span>
+                </label>
+              </>
+            )}
+          </div>
+
+          {/* Table Rows */}
+          <div className="border border-t-0 border-gray-200 dark:border-gray-700 rounded-b max-h-64 overflow-auto">
+            {tableConfigs.map((table, index) => (
+              <div
+                key={table.name}
+                className={`flex items-center gap-4 px-3 py-2 text-sm border-b border-gray-200 dark:border-gray-700 last:border-b-0 ${
+                  table.selected ? "bg-blue-50 dark:bg-gray-800/50" : "bg-gray-50 dark:bg-gray-900/50 opacity-60"
                 }`}
               >
-                {tab.label}
-              </button>
+                <label className="flex items-center gap-2 flex-1 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={table.selected}
+                    onChange={() => toggleTable(index)}
+                    className="rounded bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600"
+                  />
+                  <span className="text-gray-800 dark:text-gray-200 truncate">{table.name}</span>
+                </label>
+                {format === "sql" && (
+                  <>
+                    <label className="flex items-center justify-center w-16">
+                      <input
+                        type="checkbox"
+                        checked={table.structure}
+                        onChange={() => toggleStructure(index)}
+                        disabled={!table.selected}
+                        className="rounded bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 disabled:opacity-40"
+                      />
+                    </label>
+                    <label className="flex items-center justify-center w-16">
+                      <input
+                        type="checkbox"
+                        checked={table.content}
+                        onChange={() => toggleContent(index)}
+                        disabled={!table.selected}
+                        className="rounded bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 disabled:opacity-40"
+                      />
+                    </label>
+                  </>
+                )}
+              </div>
             ))}
           </div>
+        </div>
 
-          {/* Save Path */}
+        {/* Progress */}
+        {isExporting && (
           <div className="space-y-2">
-            <label className="text-sm text-gray-600 dark:text-gray-400">{t("dbExport.savePath")}</label>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={savePath}
-                readOnly
-                placeholder={format === "csv" ? t("dbExport.selectFolder") : t("dbExport.selectFile")}
-                className="flex-1 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded px-3 py-2 text-sm text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-500"
+            <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400 text-sm">
+              <div className="animate-spin w-4 h-4 border-2 border-blue-600 dark:border-blue-400 border-t-transparent rounded-full" />
+              {t("dbExport.exporting", { table: progress.table })}
+            </div>
+            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+              <div
+                className="bg-blue-500 h-2 rounded-full transition-all"
+                style={{ width: `${(progress.current / progress.total) * 100}%` }}
               />
-              <button
-                onClick={handleSelectPath}
-                className="px-4 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 border border-gray-300 dark:border-transparent rounded text-sm text-gray-700 dark:text-gray-200 flex items-center gap-2"
-              >
-                <FolderIcon className="w-4 h-4" />
-                {t("dbExport.browse")}
-              </button>
+            </div>
+            <div className="text-xs text-gray-500 text-right">
+              {progress.current} / {progress.total}
             </div>
           </div>
+        )}
 
-          {/* Table List */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-sm text-gray-600 dark:text-gray-400">{t("dbExport.tables")}</label>
-              <span className="text-xs text-gray-500">
-                {t("dbExport.selectedCount", { count: selectedCount })}
-              </span>
-            </div>
-
-            {/* Header Row */}
-            <div className="flex items-center gap-4 px-3 py-2 bg-gray-100 dark:bg-gray-900 rounded-t border border-gray-200 dark:border-gray-700 text-sm">
-              <label className="flex items-center gap-2 flex-1">
-                <input
-                  type="checkbox"
-                  checked={allSelected}
-                  onChange={toggleAll}
-                  className="rounded bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600"
-                />
-                <span className="text-gray-600 dark:text-gray-400">{t("dbExport.selectAll")}</span>
-              </label>
-              {format === "sql" && (
-                <>
-                  <label className="flex items-center gap-1 w-16">
-                    <input
-                      type="checkbox"
-                      checked={allStructure}
-                      onChange={toggleAllStructure}
-                      className="rounded bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600"
-                    />
-                    <span className="text-gray-600 dark:text-gray-400 text-xs">S</span>
-                  </label>
-                  <label className="flex items-center gap-1 w-16">
-                    <input
-                      type="checkbox"
-                      checked={allContent}
-                      onChange={toggleAllContent}
-                      className="rounded bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600"
-                    />
-                    <span className="text-gray-600 dark:text-gray-400 text-xs">C</span>
-                  </label>
-                </>
-              )}
-            </div>
-
-            {/* Table Rows */}
-            <div className="border border-t-0 border-gray-200 dark:border-gray-700 rounded-b max-h-64 overflow-auto">
-              {tableConfigs.map((table, index) => (
-                <div
-                  key={table.name}
-                  className={`flex items-center gap-4 px-3 py-2 text-sm border-b border-gray-200 dark:border-gray-700 last:border-b-0 ${
-                    table.selected ? "bg-blue-50 dark:bg-gray-800/50" : "bg-gray-50 dark:bg-gray-900/50 opacity-60"
-                  }`}
-                >
-                  <label className="flex items-center gap-2 flex-1 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={table.selected}
-                      onChange={() => toggleTable(index)}
-                      className="rounded bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600"
-                    />
-                    <span className="text-gray-800 dark:text-gray-200 truncate">{table.name}</span>
-                  </label>
-                  {format === "sql" && (
-                    <>
-                      <label className="flex items-center justify-center w-16">
-                        <input
-                          type="checkbox"
-                          checked={table.structure}
-                          onChange={() => toggleStructure(index)}
-                          disabled={!table.selected}
-                          className="rounded bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 disabled:opacity-40"
-                        />
-                      </label>
-                      <label className="flex items-center justify-center w-16">
-                        <input
-                          type="checkbox"
-                          checked={table.content}
-                          onChange={() => toggleContent(index)}
-                          disabled={!table.selected}
-                          className="rounded bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 disabled:opacity-40"
-                        />
-                      </label>
-                    </>
-                  )}
-                </div>
-              ))}
-            </div>
+        {/* Error */}
+        {error && (
+          <div className="text-red-600 dark:text-red-400 text-sm bg-red-100 dark:bg-red-400/10 px-3 py-2 rounded">
+            {error}
           </div>
-
-          {/* Progress */}
-          {isExporting && (
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400 text-sm">
-                <div className="animate-spin w-4 h-4 border-2 border-blue-600 dark:border-blue-400 border-t-transparent rounded-full" />
-                {t("dbExport.exporting", { table: progress.table })}
-              </div>
-              <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                <div
-                  className="bg-blue-500 h-2 rounded-full transition-all"
-                  style={{ width: `${(progress.current / progress.total) * 100}%` }}
-                />
-              </div>
-              <div className="text-xs text-gray-500 text-right">
-                {progress.current} / {progress.total}
-              </div>
-            </div>
-          )}
-
-          {/* Error */}
-          {error && (
-            <div className="text-red-600 dark:text-red-400 text-sm bg-red-100 dark:bg-red-400/10 px-3 py-2 rounded">
-              {error}
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3 flex-shrink-0">
-          <button
-            onClick={onClose}
-            disabled={isExporting}
-            className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition disabled:opacity-50"
-          >
-            {t("common.cancel")}
-          </button>
-          <button
-            onClick={handleExport}
-            disabled={isExporting || selectedCount === 0 || !savePath}
-            className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isExporting ? t("dbExport.exporting", { table: "" }) : t("dbExport.export")}
-          </button>
-        </div>
+        )}
       </div>
-    </div>
+
+      {/* Footer */}
+      <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3 flex-shrink-0">
+        <button
+          onClick={onClose}
+          disabled={isExporting}
+          className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition disabled:opacity-50"
+        >
+          {t("common.cancel")}
+        </button>
+        <button
+          onClick={handleExport}
+          disabled={isExporting || selectedCount === 0 || !savePath}
+          className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {isExporting ? t("dbExport.exporting", { table: "" }) : t("dbExport.export")}
+        </button>
+      </div>
+    </Modal>
   );
 }

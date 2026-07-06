@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { CloseIcon } from "../common/Icons";
+import { Modal } from "../common/Modal";
 
 interface RAGCompletedModalProps {
   tableCount: number;
@@ -13,13 +14,14 @@ export function RAGCompletedModal({
   const { t } = useTranslation();
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-gray-800 rounded-lg p-6 max-w-md mx-4 border border-gray-700 shadow-xl">
+    <Modal isOpen onClose={onClose} size="md">
+      <div className="p-6">
         {/* Close button */}
         <div className="flex justify-end -mt-2 -mr-2 mb-2">
           <button
             onClick={onClose}
             className="text-gray-400 hover:text-gray-200 transition-colors p-1"
+            aria-label="Close"
           >
             <CloseIcon className="w-5 h-5" />
           </button>
@@ -85,6 +87,6 @@ export function RAGCompletedModal({
           {t("common.confirm", "OK")}
         </button>
       </div>
-    </div>
+    </Modal>
   );
 }

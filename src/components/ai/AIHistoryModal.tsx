@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useAIStore, ConversationSummary } from "../../stores/aiStore";
 import { CloseIcon, SearchIcon, TrashIcon } from "../common/Icons";
+import { Modal } from "../common/Modal";
 
 interface AIHistoryModalProps {
   isOpen: boolean;
@@ -46,14 +47,13 @@ export function AIHistoryModal({ isOpen, onClose, connectionId }: AIHistoryModal
   const displayItems = filteredConversations.slice(0, displayCount);
   const hasMore = displayCount < filteredConversations.length;
 
-  // Load conversations when modal opens
+  // Load conversations when modal opens (initial focus is handled by Modal via initialFocusRef)
   useEffect(() => {
     if (isOpen) {
       loadConversations();
       setSearchQuery("");
       setSelectedIndex(0);
       setDisplayCount(PAGE_SIZE);
-      setTimeout(() => inputRef.current?.focus(), 100);
     }
   }, [isOpen, loadConversations]);
 
@@ -100,11 +100,9 @@ export function AIHistoryModal({ isOpen, onClose, connectionId }: AIHistoryModal
       } else if (e.key === "Enter" && displayItems.length > 0) {
         e.preventDefault();
         handleSelect(displayItems[selectedIndex]);
-      } else if (e.key === "Escape") {
-        onClose();
       }
     },
-    [displayItems, selectedIndex, handleSelect, onClose]
+    [displayItems, selectedIndex, handleSelect]
   );
 
   // Scroll selected item into view
@@ -139,14 +137,14 @@ export function AIHistoryModal({ isOpen, onClose, connectionId }: AIHistoryModal
   if (!isOpen) return null;
 
   return (
-    <div
-      className="fixed inset-0 bg-black/50 flex items-start justify-center z-50 pt-[15vh]"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      size="xl"
+      initialFocusRef={inputRef}
+      panelClassName="self-start mt-[15vh] overflow-hidden"
     >
-      <div
-        className="bg-gray-800 rounded-lg shadow-xl w-full max-w-xl mx-4 overflow-hidden"
-        onKeyDown={handleKeyDown}
-      >
+      <div onKeyDown={handleKeyDown}>
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700">
           <h2 className="text-base font-medium text-white">
@@ -261,6 +259,6 @@ export function AIHistoryModal({ isOpen, onClose, connectionId }: AIHistoryModal
           </div>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

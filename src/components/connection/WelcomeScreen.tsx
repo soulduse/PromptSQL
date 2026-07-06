@@ -5,6 +5,7 @@ import { useTabStore } from "../../stores/tabStore";
 import { invoke } from "@tauri-apps/api/core";
 import { ConnectionModal, ConnectionFormData } from "./ConnectionModal";
 import { DatabaseIcon, EditIcon, TrashIcon, PlusIcon } from "../common/Icons";
+import { Modal } from "../common/Modal";
 
 interface WelcomeScreenProps {
   onNewConnection: () => void;
@@ -177,8 +178,8 @@ export function WelcomeScreen({ onNewConnection }: WelcomeScreenProps) {
 
       {/* Delete Confirmation Dialog */}
       {showDeleteConfirm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-gray-800 rounded-lg p-6 max-w-sm w-full mx-4 shadow-xl">
+        <Modal isOpen onClose={() => setShowDeleteConfirm(null)} size="sm">
+          <div className="p-6">
             <h3 className="text-lg font-bold mb-4">{t("connection.confirmDeleteTitle")}</h3>
             <p className="text-gray-400 mb-6">{t("connection.confirmDelete")}</p>
             <div className="flex justify-end gap-3">
@@ -196,7 +197,7 @@ export function WelcomeScreen({ onNewConnection }: WelcomeScreenProps) {
               </button>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

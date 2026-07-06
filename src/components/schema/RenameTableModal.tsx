@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
+import { Modal } from "../common/Modal";
 
 interface RenameTableModalProps {
   isOpen: boolean;
@@ -62,16 +63,12 @@ export function RenameTableModal({
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && newName.trim() && newName !== tableName) {
       handleRename();
-    } else if (e.key === "Escape") {
-      onClose();
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-
-      <div className="relative bg-gray-800 rounded-lg shadow-xl w-full max-w-md mx-4" onKeyDown={handleKeyDown}>
+    <Modal isOpen={isOpen} onClose={onClose} size="md" closeOnBackdrop={false}>
+      <div onKeyDown={handleKeyDown}>
         <div className="px-6 py-4 border-b border-gray-700">
           <h3 className="text-lg font-semibold text-white">{t("tableMenu.renameTitle")}</h3>
         </div>
@@ -113,6 +110,6 @@ export function RenameTableModal({
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

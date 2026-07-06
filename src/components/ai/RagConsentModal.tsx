@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { WarningIcon, CloseIcon } from "../common/Icons";
+import { Modal } from "../common/Modal";
 
 interface RagConsentModalProps {
   onConfirm: () => void;
@@ -15,8 +16,8 @@ export function RagConsentModal({ onConfirm, onDecline }: RagConsentModalProps) 
   const { t } = useTranslation();
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-gray-800 rounded-lg p-6 max-w-md mx-4 border border-gray-700 shadow-xl">
+    <Modal isOpen onClose={onDecline} size="md">
+      <div className="p-6">
         <div className="flex items-start gap-4">
           <div className="w-12 h-12 rounded-full bg-blue-500/10 flex items-center justify-center flex-shrink-0">
             <WarningIcon className="w-6 h-6 text-blue-400" />
@@ -60,6 +61,6 @@ export function RagConsentModal({ onConfirm, onDecline }: RagConsentModalProps) 
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

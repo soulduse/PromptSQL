@@ -1,6 +1,7 @@
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { WarningIcon } from "../common/Icons";
+import { Modal } from "../common/Modal";
 
 interface RowErrorModalProps {
   isOpen: boolean;
@@ -13,36 +14,16 @@ export function RowErrorModal({ isOpen, error, onEdit, onDiscard }: RowErrorModa
   const { t } = useTranslation();
   const editButtonRef = useRef<HTMLButtonElement>(null);
 
-  useEffect(() => {
-    if (isOpen && editButtonRef.current) {
-      editButtonRef.current.focus();
-    }
-  }, [isOpen]);
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (!isOpen) return;
-      if (e.key === "Escape") {
-        onDiscard();
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onDiscard]);
-
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/60"
-        onClick={onDiscard}
-      />
-
-      {/* Modal */}
-      <div className="relative bg-gray-800 rounded-lg shadow-xl border border-gray-700 w-full max-w-md mx-4 p-6">
+    <Modal
+      isOpen={isOpen}
+      onClose={onDiscard}
+      size="md"
+      initialFocusRef={editButtonRef}
+    >
+      <div className="p-6">
         {/* Error Icon */}
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2 bg-red-500/20 rounded-full">
@@ -78,6 +59,6 @@ export function RowErrorModal({ isOpen, error, onEdit, onDiscard }: RowErrorModa
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

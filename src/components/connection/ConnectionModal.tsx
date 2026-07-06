@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
+import { Modal } from "../common/Modal";
 
 export interface ConnectionFormData {
   name: string;
@@ -90,8 +91,8 @@ export function ConnectionModal({ isOpen, onClose, onSave, initialData, mode = "
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-gray-800 rounded-lg w-full max-w-md p-6 shadow-xl">
+    <Modal isOpen={isOpen} onClose={onClose} size="md" closeOnBackdrop={false}>
+      <div className="p-6">
         <h2 className="text-xl font-bold mb-6">
           {mode === "edit" ? t("connection.edit") : t("connection.new")}
         </h2>
@@ -211,6 +212,6 @@ export function ConnectionModal({ isOpen, onClose, onSave, initialData, mode = "
           </div>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

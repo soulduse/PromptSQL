@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
+import { Modal } from "../common/Modal";
 
 interface QueryResult {
   columns: string[];
@@ -162,34 +163,13 @@ export function ExportTableModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-
-      <div className="relative bg-gray-800 rounded-lg shadow-xl w-full max-w-md mx-4">
-        <div className="px-6 py-4 border-b border-gray-700">
-          <h3 className="text-lg font-semibold text-white">{getExportTitle()}</h3>
-        </div>
-
-        <div className="px-6 py-4 space-y-4">
-          <p className="text-gray-300 text-sm">
-            {t("export.confirmExport", { table: tableName })}
-          </p>
-
-          {progress && (
-            <div className="flex items-center gap-2 text-blue-400 text-sm">
-              <div className="animate-spin w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full" />
-              {progress}
-            </div>
-          )}
-
-          {error && (
-            <div className="text-red-400 text-sm bg-red-400/10 px-3 py-2 rounded">
-              {error}
-            </div>
-          )}
-        </div>
-
-        <div className="px-6 py-4 border-t border-gray-700 flex justify-end gap-3">
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      size="md"
+      title={getExportTitle()}
+      footer={
+        <>
           <button
             onClick={onClose}
             disabled={isExporting}
@@ -204,8 +184,27 @@ export function ExportTableModal({
           >
             {isExporting ? t("common.loading") : t("export.export")}
           </button>
-        </div>
+        </>
+      }
+    >
+      <div className="px-6 py-4 space-y-4">
+        <p className="text-gray-300 text-sm">
+          {t("export.confirmExport", { table: tableName })}
+        </p>
+
+        {progress && (
+          <div className="flex items-center gap-2 text-blue-400 text-sm">
+            <div className="animate-spin w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full" />
+            {progress}
+          </div>
+        )}
+
+        {error && (
+          <div className="text-red-400 text-sm bg-red-400/10 px-3 py-2 rounded">
+            {error}
+          </div>
+        )}
       </div>
-    </div>
+    </Modal>
   );
 }

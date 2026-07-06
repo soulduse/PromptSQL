@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useHistoryStore, QueryHistory } from "../../stores/historyStore";
 import { useTabStore } from "../../stores/tabStore";
 import { SearchIcon, SpinnerIcon, MoreVerticalIcon, EditIcon, TrashIcon, ChevronLeftIcon, ChevronRightIcon } from "../common/Icons";
+import { Modal } from "../common/Modal";
 
 interface HistorySearchModalProps {
   isOpen: boolean;
@@ -60,7 +61,7 @@ export function HistorySearchModal({ isOpen, onClose }: HistorySearchModalProps)
       setEditingGroup(null);
       setSelectedGroup(null);
       clearSearchResults();
-      setTimeout(() => inputRef.current?.focus(), 100);
+      // 초기 포커스는 Modal의 initialFocusRef가 처리
     }
   }, [isOpen, loadHistory, loadGroups, clearSearchResults]);
 
@@ -88,7 +89,8 @@ export function HistorySearchModal({ isOpen, onClose }: HistorySearchModalProps)
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Global ESC key handler
+  // Global ESC key handler — 레이어별(노트 편집→그룹 편집→메뉴→모달 닫기) 처리가
+  // 필요해 Modal의 ESC(closeOnEsc)를 끄고 자체 리스너를 유지한다.
   useEffect(() => {
     if (!isOpen) return;
 
@@ -247,25 +249,18 @@ export function HistorySearchModal({ isOpen, onClose }: HistorySearchModalProps)
     }
   };
 
-  // Handle overlay click to close modal
-  const handleOverlayClick = (e: React.MouseEvent) => {
-    // Only close if clicking directly on the overlay, not on modal content
-    if (e.target === e.currentTarget) {
-      onClose();
-    }
-  };
-
   if (!isOpen) return null;
 
   return (
-    <div
-      className="fixed inset-0 bg-black/50 flex items-start justify-center z-50 pt-[15vh]"
-      onClick={handleOverlayClick}
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      size="2xl"
+      closeOnEsc={false}
+      initialFocusRef={inputRef}
+      panelClassName="self-start mt-[15vh] overflow-hidden"
     >
-      <div
-        className="bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl mx-4 overflow-hidden"
-        onKeyDown={handleKeyDown}
-      >
+      <div onKeyDown={handleKeyDown}>
         {/* Header with Tabs */}
         <div className="flex items-center border-b border-gray-700">
           <button
@@ -687,13 +682,8 @@ export function HistorySearchModal({ isOpen, onClose }: HistorySearchModalProps)
 
         {/* Note Editing Modal */}
         {editingNote && (
-          <div
-            className="fixed inset-0 bg-black/50 flex items-center justify-center z-60"
-            onClick={(e) => {
-              if (e.target === e.currentTarget) setEditingNote(null);
-            }}
-          >
-            <div className="bg-gray-800 rounded-lg shadow-xl w-full max-w-md mx-4 p-4">
+          <Modal isOpen onClose={() => setEditingNote(null)} size="md">
+            <div className="p-4">
               <h3 className="text-lg font-medium text-white mb-4">{t("history.editNote")}</h3>
               <textarea
                 value={editingNote.note}
@@ -717,9 +707,9 @@ export function HistorySearchModal({ isOpen, onClose }: HistorySearchModalProps)
                 </button>
               </div>
             </div>
-          </div>
+          </Modal>
         )}
       </div>
-    </div>
+    </Modal>
   );
 }

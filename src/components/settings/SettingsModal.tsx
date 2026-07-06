@@ -5,6 +5,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { languages } from "../../i18n";
 import { LLMProvider } from "../../stores/aiStore";
 import { CloseIcon, CheckIcon, MinusIcon, PlusIcon, SunIcon, MoonIcon, LockIcon, SpinnerIcon } from "../common/Icons";
+import { Modal } from "../common/Modal";
 
 const FONT_SIZE_KEY = "promptsql-font-size";
 const THEME_KEY = "promptsql-theme";
@@ -154,20 +155,6 @@ export function SettingsModal({ isOpen, onClose, defaultTab }: SettingsModalProp
     loadStoredKeyStatus();
   }, [isOpen]);
 
-  // Close on ESC key
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        onClose();
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onClose]);
-
   const handleLanguageChange = (langCode: string) => {
     i18n.changeLanguage(langCode);
   };
@@ -260,7 +247,12 @@ export function SettingsModal({ isOpen, onClose, defaultTab }: SettingsModalProp
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      size="3xl"
+      panelClassName="flex flex-col h-[840px] max-h-[90vh]"
+    >
       {/* Toast notification */}
       {toast && (
         <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[60] animate-fade-in">
@@ -279,7 +271,7 @@ export function SettingsModal({ isOpen, onClose, defaultTab }: SettingsModalProp
         </div>
       )}
 
-      <div className="bg-gray-800 rounded-lg shadow-xl w-full max-w-3xl mx-4 flex flex-col" style={{ height: '840px' }}>
+      <>
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-700 flex-shrink-0">
           <h2 className="text-xl font-semibold">{t("settings.title")}</h2>
@@ -664,7 +656,7 @@ export function SettingsModal({ isOpen, onClose, defaultTab }: SettingsModalProp
             {t("settings.close")}
           </button>
         </div>
-      </div>
-    </div>
+      </>
+    </Modal>
   );
 }

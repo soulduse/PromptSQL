@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
+import { Modal } from "../common/Modal";
 
 interface AddDatabaseModalProps {
   isOpen: boolean;
@@ -65,13 +66,13 @@ export function AddDatabaseModal({
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // 초기 포커스는 Modal의 initialFocusRef가 처리
   useEffect(() => {
     if (isOpen) {
       setDatabaseName("");
       setEncoding("");
       setCollation("");
       setError(null);
-      setTimeout(() => inputRef.current?.focus(), 100);
     }
   }, [isOpen]);
 
@@ -83,10 +84,9 @@ export function AddDatabaseModal({
     }
   }, [encoding]);
 
+  // ESC 닫기는 Modal이 처리 — 여기서는 Enter 제출만 담당
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Escape") {
-      onClose();
-    } else if (e.key === "Enter" && databaseName.trim() && !isLoading) {
+    if (e.key === "Enter" && databaseName.trim() && !isLoading) {
       handleCreate();
     }
   };
@@ -127,15 +127,13 @@ export function AddDatabaseModal({
   const availableCollations = COLLATION_OPTIONS[encoding] || [];
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      onClick={onClose}
-      onKeyDown={handleKeyDown}
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      initialFocusRef={inputRef}
+      panelClassName="!w-[400px]"
     >
-      <div
-        className="bg-gray-800 rounded-lg shadow-xl w-[400px] border border-gray-700"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div onKeyDown={handleKeyDown}>
         {/* Header */}
         <div className="px-4 py-3 border-b border-gray-700">
           <h2 className="text-lg font-semibold text-white">
@@ -233,6 +231,6 @@ export function AddDatabaseModal({
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

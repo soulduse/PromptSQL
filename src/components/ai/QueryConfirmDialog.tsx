@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { WarningIcon, CopyIcon, CheckIcon } from "../common/Icons";
 import { DangerLevel } from "../../utils/sqlUtils";
 import { useTheme, highlightSQL } from "./CodeBlock";
+import { Modal } from "../common/Modal";
 
 interface QueryConfirmDialogProps {
   isOpen: boolean;
@@ -34,19 +35,6 @@ export function QueryConfirmDialog({
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
   const [copied, setCopied] = useState(false);
   const isDark = useTheme();
-
-  useEffect(() => {
-    if (isOpen) {
-      // Focus cancel button for safety
-      setTimeout(() => cancelButtonRef.current?.focus(), 100);
-    }
-  }, [isOpen]);
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Escape") {
-      onCancel();
-    }
-  };
 
   const handleCopy = async () => {
     try {
@@ -96,18 +84,15 @@ export function QueryConfirmDialog({
     : "text-gray-600 hover:text-gray-900 hover:bg-gray-200";
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      onKeyDown={handleKeyDown}
+    <Modal
+      isOpen={isOpen}
+      onClose={onCancel}
+      size="lg"
+      skin={false}
+      initialFocusRef={cancelButtonRef}
+      panelClassName={`${modalBgColor} rounded-lg shadow-xl border ${borderColor}`}
     >
-      <div
-        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
-        onClick={onCancel}
-      />
-
-      <div
-        className={`relative ${modalBgColor} rounded-lg shadow-xl w-full max-w-lg mx-4 border ${borderColor}`}
-      >
+      <>
         {/* Header */}
         <div className={`px-6 py-4 border-b ${borderColorBase} flex items-center gap-3`}>
           <div
@@ -182,7 +167,7 @@ export function QueryConfirmDialog({
             {t("ai.executeQuery", "실행")}
           </button>
         </div>
-      </div>
-    </div>
+      </>
+    </Modal>
   );
 }
