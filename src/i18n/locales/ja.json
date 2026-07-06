@@ -112,7 +112,8 @@
     "failed": "接続失敗",
     "connect": "接続",
     "disconnect": "切断",
-    "delete": "削除"
+    "delete": "削除",
+    "passwordKeepHint": "変更しない場合は空欄のままにしてください"
   },
   "query": {
     "editor": "クエリエディタ",
@@ -386,7 +387,13 @@
     "queryError": "エラー",
     "rows": "行",
     "rowsReturned": "行を返しました",
-    "resultsLimited": "結果は100行に制限されています"
+    "resultsLimited": "結果は100行に制限されています",
+    "ragConsent": {
+      "title": "スキーマをGoogleにアップロードしますか？",
+      "description": "データベーススキーマの学習のため、テーブル・カラム構造（名前、型、コメント）がGoogle Gemini File Searchにアップロードされ保存されます。",
+      "note": "テーブルデータ（行）はアップロードされません。同意しなくてもAIは利用でき、テーブル選択の精度のみ低下します。",
+      "agree": "同意して開始"
+    }
   },
   "history": {
     "title": "クエリ履歴",

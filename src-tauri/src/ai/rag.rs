@@ -464,7 +464,7 @@ pub async fn create_schema_store(
 
     let response = client
         .post(format!("{}/fileSearchStores", GEMINI_API_BASE))
-        .query(&[("key", api_key)])
+        .header("x-goog-api-key", api_key)
         .json(&json!({
             "displayName": display_name
         }))
@@ -523,7 +523,7 @@ pub async fn index_schema(
                 "{}/{}:uploadToFileSearchStore",
                 GEMINI_UPLOAD_BASE, store_name
             ))
-            .query(&[("key", api_key)])
+            .header("x-goog-api-key", api_key)
             .multipart(form)
             .send()
             .await
@@ -583,7 +583,7 @@ pub async fn upload_single_schema(
             "{}/{}:uploadToFileSearchStore",
             GEMINI_UPLOAD_BASE, store_name
         ))
-        .query(&[("key", api_key)])
+        .header("x-goog-api-key", api_key)
         .multipart(form)
         .send()
         .await
@@ -626,7 +626,7 @@ pub async fn list_store_files(
 
     let response = client
         .get(format!("{}/{}/files", GEMINI_API_BASE, store_name))
-        .query(&[("key", api_key)])
+        .header("x-goog-api-key", api_key)
         .send()
         .await
         .map_err(|e| format!("Failed to list store files: {}", e))?;
@@ -657,7 +657,7 @@ pub async fn delete_store_file(api_key: &str, file_name: &str) -> Result<(), Str
 
     let response = client
         .delete(format!("{}/{}", GEMINI_API_BASE, file_name))
-        .query(&[("key", api_key)])
+        .header("x-goog-api-key", api_key)
         .send()
         .await
         .map_err(|e| format!("Failed to delete file {}: {}", file_name, e))?;
@@ -796,7 +796,7 @@ pub async fn search_relevant_tables(
             "{}/models/gemini-2.5-flash:generateContent",
             GEMINI_API_BASE
         ))
-        .query(&[("key", api_key)])
+        .header("x-goog-api-key", api_key)
         .json(&body)
         .send()
         .await

@@ -9,6 +9,7 @@ import { AIHistoryModal } from "./AIHistoryModal";
 import { AIChatMenu } from "./AIChatMenu";
 import { GeminiRequiredModal } from "./GeminiRequiredModal";
 import { RAGCompletedModal } from "./RAGCompletedModal";
+import { RagConsentModal } from "./RagConsentModal";
 import { QueryConfirmDialog } from "./QueryConfirmDialog";
 import { RobotDetailedIcon, MoreHorizontalIcon, CloseIcon, WarningIcon, SparklesIcon } from "../common/Icons";
 
@@ -51,6 +52,9 @@ export default function AIChatPanel({ onOpenSettings, isSettingsOpen }: AIChatPa
     closeGeminiRequiredModal,
     pendingApproval,
     respondAutoQuery,
+    showRagConsentModal,
+    confirmRagConsent,
+    declineRagConsent,
   } = useAIStore();
 
   const [apiKeyConfigured, setApiKeyConfigured] = useState<boolean | null>(null);
@@ -459,6 +463,14 @@ export default function AIChatPanel({ onOpenSettings, isSettingsOpen }: AIChatPa
         <RAGCompletedModal
           tableCount={ragCompletedInfo.tableCount}
           onClose={dismissRagCompletedModal}
+        />
+      )}
+
+      {/* RAG 최초 인덱싱 전 외부 전송 동의 모달 */}
+      {showRagConsentModal && (
+        <RagConsentModal
+          onConfirm={confirmRagConsent}
+          onDecline={declineRagConsent}
         />
       )}
 

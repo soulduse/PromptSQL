@@ -329,9 +329,36 @@ pub fn preview_alter_column_sql(
 
 // Storage commands
 
+/// 저장된 연결 목록 — 비밀번호는 포함하지 않는다 (Keychain은 백엔드 전용)
 #[tauri::command]
-pub fn load_saved_connections() -> Result<Vec<ConnectionWithPassword>, String> {
-    storage::load_connections_with_passwords()
+pub fn load_saved_connections() -> Result<Vec<storage::StoredConnection>, String> {
+    storage::load_connections()
+}
+
+/// 저장된 연결로 접속 — 비밀번호를 백엔드가 Keychain에서 직접 읽어
+/// 프론트엔드를 경유하지 않는다.
+#[tauri::command]
+pub async fn connect_saved_database(
+    manager: State<'_, SharedConnectionManager>,
+    id: String,
+) -> Result<ConnectionResult, String> {
+    let stored = storage::load_connections()?
+        .into_iter()
+        .find(|c| c.id == id)
+        .ok_or("Connection not found")?;
+
+    let password = storage::get_password(&id).unwrap_or_default();
+
+    let conn_config = ConnectionConfig {
+        host: stored.host,
+        port: stored.port,
+        user: stored.user,
+        password,
+        database: stored.database,
+    };
+
+    let mut manager = manager.lock().await;
+    Ok(manager.connect(id, &conn_config).await)
 }
 
 #[tauri::command]

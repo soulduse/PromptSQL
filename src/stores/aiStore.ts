@@ -12,6 +12,8 @@ const MODEL_KEY = "promptsql-chat-model";
 const AUTO_MODE_KEY = "promptsql-chat-auto-mode";
 // 신뢰 토글: 안전성 검사를 통과한 읽기 쿼리를 승인 없이 자동 실행
 const AUTO_APPROVE_KEY = "promptsql-chat-auto-approve-trusted";
+// RAG 스키마 외부 업로드(Gemini File Search) 동의 여부
+const RAG_CONSENT_KEY = "promptsql-rag-upload-consent";
 const DEFAULT_PANEL_WIDTH = 400;
 const MIN_PANEL_WIDTH = 300;
 // Dynamic max width: 70% of window width
@@ -215,6 +217,10 @@ interface AIState {
   // Gemini API required modal
   showGeminiRequiredModal: boolean;
 
+  // RAG 외부 업로드 동의 모달
+  showRagConsentModal: boolean;
+  pendingRagIndexing: { connectionId: string; database: string } | null;
+
   // Event listeners
   unlistenStream: UnlistenFn | null;
   unlistenStatus: UnlistenFn | null;
@@ -280,6 +286,8 @@ interface AIState {
 
   // RAG suggestion actions
   startRagIndexing: (connectionId: string, database: string) => Promise<void>;
+  confirmRagConsent: () => Promise<void>;
+  declineRagConsent: () => void;
   dismissRagSuggestion: () => void;
 
   // RAG outdated actions
@@ -424,6 +432,8 @@ export const useAIStore = create<AIState>((set, get) => ({
   ragCompletedInfo: null,
   showRagCompletedModal: false,
   showGeminiRequiredModal: false,
+  showRagConsentModal: false,
+  pendingRagIndexing: null,
   unlistenStream: null,
   unlistenStatus: null,
   unlistenConversationSaved: null,
@@ -1430,6 +1440,15 @@ export const useAIStore = create<AIState>((set, get) => ({
 
   // RAG suggestion actions
   startRagIndexing: async (connectionId: string, database: string) => {
+    // 최초 인덱싱 전 외부 전송(스키마 → Gemini File Search) 동의 필요
+    if (localStorage.getItem(RAG_CONSENT_KEY) !== "true") {
+      set({
+        showRagConsentModal: true,
+        pendingRagIndexing: { connectionId, database },
+      });
+      return;
+    }
+
     try {
       await invoke("start_rag_indexing_cmd", { connectionId, database });
       // 제안 닫기
@@ -1437,6 +1456,29 @@ export const useAIStore = create<AIState>((set, get) => ({
     } catch (error) {
       console.error("Failed to start RAG indexing:", error);
     }
+  },
+
+  confirmRagConsent: async () => {
+    const { pendingRagIndexing } = get();
+    localStorage.setItem(RAG_CONSENT_KEY, "true");
+    set({ showRagConsentModal: false, pendingRagIndexing: null });
+
+    if (pendingRagIndexing) {
+      const { startRagIndexing } = get();
+      await startRagIndexing(
+        pendingRagIndexing.connectionId,
+        pendingRagIndexing.database
+      );
+    }
+  },
+
+  declineRagConsent: () => {
+    // 동의 안 함 — 이번 세션의 제안 배너도 함께 닫는다
+    set({
+      showRagConsentModal: false,
+      pendingRagIndexing: null,
+      ragSuggestion: null,
+    });
   },
 
   dismissRagSuggestion: () => {

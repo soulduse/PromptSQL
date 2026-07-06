@@ -47,6 +47,7 @@ pub fn run() {
             commands::delete_table_rows,
             // Storage commands
             commands::load_saved_connections,
+            commands::connect_saved_database,
             commands::save_connection,
             commands::delete_saved_connection,
             commands::update_last_database,

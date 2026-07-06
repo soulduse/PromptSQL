@@ -151,7 +151,11 @@ export function ConnectionModal({ isOpen, onClose, onSave, initialData, mode = "
               type="password"
               value={form.password}
               onChange={(e) => handleChange("password", e.target.value)}
-              placeholder="••••••••"
+              placeholder={
+                mode === "edit"
+                  ? t("connection.passwordKeepHint", "Leave blank to keep current password")
+                  : "••••••••"
+              }
               className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500"
             />
           </div>

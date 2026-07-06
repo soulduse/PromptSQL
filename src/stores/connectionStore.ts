@@ -1,17 +1,22 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 
+// 비밀번호는 백엔드 Keychain 전용 — 프론트엔드 상태에 저장하지 않는다
 export interface Connection {
   id: string;
   name: string;
   host: string;
   port: number;
   user: string;
-  password: string;
   database?: string;
   last_used_database?: string;
   isConnected: boolean;
 }
+
+/** 생성/수정 폼 입력 — 비밀번호는 저장 시에만 백엔드로 전달 */
+export type ConnectionInput = Omit<Connection, "id" | "isConnected"> & {
+  password: string;
+};
 
 interface ConnectionResult {
   success: boolean;
@@ -23,8 +28,8 @@ interface ConnectionState {
   connections: Connection[];
   // Actions
   loadSavedConnections: () => Promise<void>;
-  addConnection: (connection: Omit<Connection, "id" | "isConnected">) => Promise<Connection>;
-  updateConnection: (id: string, connection: Omit<Connection, "id" | "isConnected">) => Promise<void>;
+  addConnection: (connection: ConnectionInput) => Promise<Connection>;
+  updateConnection: (id: string, connection: ConnectionInput) => Promise<void>;
   removeConnection: (id: string) => Promise<void>;
   setConnected: (id: string, isConnected: boolean) => void;
   connectDatabase: (id: string) => Promise<ConnectionResult>;
@@ -48,15 +53,20 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
     }
   },
 
-  addConnection: async (connection: Omit<Connection, "id" | "isConnected">): Promise<Connection> => {
+  addConnection: async (connection: ConnectionInput): Promise<Connection> => {
+    const id = crypto.randomUUID();
+    const { password, ...metadata } = connection;
     const newConnection: Connection = {
-      ...connection,
-      id: crypto.randomUUID(),
+      ...metadata,
+      id,
       isConnected: false,
     };
 
     try {
-      await invoke("save_connection", { connection: newConnection });
+      // 비밀번호는 저장 요청에만 실려가고 상태에는 남기지 않는다
+      await invoke("save_connection", {
+        connection: { ...metadata, id, password },
+      });
     } catch (error) {
       console.error("Failed to save connection:", error);
     }
@@ -68,18 +78,22 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
     return newConnection;
   },
 
-  updateConnection: async (id: string, connection: Omit<Connection, "id" | "isConnected">): Promise<void> => {
+  updateConnection: async (id: string, connection: ConnectionInput): Promise<void> => {
     const existingConnection = get().connections.find((c) => c.id === id);
     if (!existingConnection) return;
 
+    const { password, ...metadata } = connection;
     const updatedConnection: Connection = {
-      ...connection,
+      ...metadata,
       id,
       isConnected: existingConnection.isConnected,
     };
 
     try {
-      await invoke("save_connection", { connection: updatedConnection });
+      // 빈 비밀번호는 백엔드가 "변경 안 함"으로 처리 (기존 Keychain 유지)
+      await invoke("save_connection", {
+        connection: { ...metadata, id, password },
+      });
     } catch (error) {
       console.error("Failed to update connection:", error);
       throw error;
@@ -119,16 +133,8 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
     }
 
     try {
-      const result = await invoke<ConnectionResult>("connect_database", {
-        id,
-        config: {
-          host: connection.host,
-          port: connection.port,
-          user: connection.user,
-          password: connection.password,
-          database: connection.database || null,
-        },
-      });
+      // 백엔드가 Keychain에서 비밀번호를 직접 읽는다
+      const result = await invoke<ConnectionResult>("connect_saved_database", { id });
 
       if (result.success) {
         set((state: ConnectionState) => ({

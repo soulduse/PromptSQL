@@ -131,7 +131,8 @@
     "connecting": "연결 중...",
     "confirmDeleteTitle": "연결 삭제",
     "confirmDelete": "이 연결을 삭제하시겠습니까?",
-    "nameRequired": "연결 이름을 입력하세요"
+    "nameRequired": "연결 이름을 입력하세요",
+    "passwordKeepHint": "변경하지 않으려면 비워 두세요"
   },
   "query": {
     "editor": "쿼리 에디터",
@@ -429,7 +430,13 @@
     "queryError": "오류",
     "rows": "행",
     "rowsReturned": "행 반환",
-    "resultsLimited": "결과가 100행으로 제한됨"
+    "resultsLimited": "결과가 100행으로 제한됨",
+    "ragConsent": {
+      "title": "스키마를 Google에 업로드할까요?",
+      "description": "데이터베이스 스키마 학습을 위해 테이블·컬럼 구조(이름, 타입, 코멘트)가 Google Gemini File Search에 업로드되어 저장됩니다.",
+      "note": "테이블 데이터(행)는 업로드되지 않습니다. 동의하지 않아도 AI는 사용할 수 있으며, 테이블 선택 정확도만 낮아집니다.",
+      "agree": "동의하고 시작"
+    }
   },
   "queryError": {
     "code": "에러",

@@ -145,28 +145,6 @@ pub fn delete_password(connection_id: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Load all connections with their passwords
-pub fn load_connections_with_passwords() -> Result<Vec<ConnectionWithPassword>, String> {
-    let connections = load_connections()?;
-
-    let mut result = Vec::new();
-    for conn in connections {
-        let password = get_password(&conn.id).unwrap_or_default();
-        result.push(ConnectionWithPassword {
-            id: conn.id,
-            name: conn.name,
-            host: conn.host,
-            port: conn.port,
-            user: conn.user,
-            password,
-            database: conn.database,
-            last_used_database: conn.last_used_database,
-        });
-    }
-
-    Ok(result)
-}
-
 /// Save a single connection (metadata + password)
 pub fn save_connection(connection: &ConnectionWithPassword) -> Result<(), String> {
     // Load existing connections
@@ -195,8 +173,12 @@ pub fn save_connection(connection: &ConnectionWithPassword) -> Result<(), String
     // Save connections to file
     save_connections(&connections)?;
 
-    // Store password in keychain (and cache)
-    store_password(&connection.id, &connection.password)?;
+    // Store password in keychain (and cache).
+    // 빈 비밀번호는 "변경 안 함" — 기존 Keychain 항목이 있으면 유지한다
+    // (편집 UI가 비밀번호를 미리 채우지 않기 때문).
+    if !connection.password.is_empty() || get_password(&connection.id).is_err() {
+        store_password(&connection.id, &connection.password)?;
+    }
 
     Ok(())
 }

@@ -131,7 +131,8 @@
     "connecting": "Connecting...",
     "confirmDeleteTitle": "Delete Connection",
     "confirmDelete": "Are you sure you want to delete this connection?",
-    "nameRequired": "Connection name is required"
+    "nameRequired": "Connection name is required",
+    "passwordKeepHint": "Leave blank to keep current password"
   },
   "query": {
     "editor": "Query Editor",
@@ -429,7 +430,13 @@
     "queryError": "Error",
     "rows": "rows",
     "rowsReturned": "rows returned",
-    "resultsLimited": "Results limited to 100 rows"
+    "resultsLimited": "Results limited to 100 rows",
+    "ragConsent": {
+      "title": "Upload schema to Google?",
+      "description": "To learn your database schema, table and column structures (names, types, comments) will be uploaded to Google Gemini File Search and stored there.",
+      "note": "Table data (rows) is not uploaded. You can proceed without this — the AI will still work, with less accurate table selection.",
+      "agree": "Agree and start"
+    }
   },
   "queryError": {
     "code": "Error",

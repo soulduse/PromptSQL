@@ -112,7 +112,8 @@
     "failed": "连接失败",
     "connect": "连接",
     "disconnect": "断开",
-    "delete": "删除"
+    "delete": "删除",
+    "passwordKeepHint": "留空以保留当前密码"
   },
   "query": {
     "editor": "查询编辑器",
@@ -386,7 +387,13 @@
     "queryError": "错误",
     "rows": "行",
     "rowsReturned": "行返回",
-    "resultsLimited": "结果限制为100行"
+    "resultsLimited": "结果限制为100行",
+    "ragConsent": {
+      "title": "将架构上传到 Google？",
+      "description": "为了学习数据库架构，表和列的结构（名称、类型、注释）将被上传并存储到 Google Gemini File Search。",
+      "note": "表数据（行）不会被上传。您也可以不同意 — AI 仍可使用，只是表选择的准确度会降低。",
+      "agree": "同意并开始"
+    }
   },
   "history": {
     "title": "查询历史",

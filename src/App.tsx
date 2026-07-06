@@ -528,7 +528,8 @@ function App() {
           host: editingConnection.host,
           port: editingConnection.port,
           user: editingConnection.user,
-          password: editingConnection.password,
+          // 비밀번호는 프론트로 반환되지 않는다 — 빈칸 = 변경 안 함
+          password: "",
           database: editingConnection.database || "",
         } : null}
         mode={editingConnection ? "edit" : "create"}
