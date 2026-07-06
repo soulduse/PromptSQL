@@ -181,6 +181,11 @@ interface AIState {
   isStreaming: boolean;
   streamingMessageId: string | null;
   currentStreamContent: string;
+  // 요청 ID → 대상 탭 ID 라우팅 맵 — 스트리밍 중 탭을 전환해도
+  // 콘텐츠가 원래 탭의 대화에만 기록되도록 한다
+  requestTabMap: Record<string, string>;
+  // 취소 대상이 되는 진행 중 요청 ID
+  activeRequestId: string | null;
   streamStatus: "analyzing_tables" | "generating" | "reusing_context" | "searching_via_rag" | "auto_mode_starting" | "auto_mode_continuing" | "waiting_approval" | null;
 
   // AUTO mode state
@@ -265,9 +270,9 @@ interface AIState {
     database?: string | null
   ) => Promise<void>;
   deleteMessage: (messageId: string) => Promise<void>;
-  cancelRequest: () => void;
-  appendStreamContent: (content: string) => void;
-  finalizeStreamMessage: () => void;
+  cancelRequest: () => Promise<void>;
+  appendStreamContent: (content: string, requestId: string) => void;
+  finalizeStreamMessage: (requestId: string) => void;
 
   // LLM settings actions
   loadAvailableModels: () => Promise<void>;
@@ -412,6 +417,8 @@ export const useAIStore = create<AIState>((set, get) => ({
   isStreaming: false,
   streamingMessageId: null,
   currentStreamContent: "",
+  requestTabMap: {},
+  activeRequestId: null,
   streamStatus: null,
   // AUTO 모드 기본 활성화 - SELECT 쿼리만 실행되므로 안전함
   // localStorage에 값이 없으면 true (처음 사용자), "false"일 때만 비활성화
@@ -444,13 +451,13 @@ export const useAIStore = create<AIState>((set, get) => ({
   unlistenGeminiRequired: null,
 
   // Panel actions
+  // 리스너는 앱 마운트 시 1회 등록되어 유지된다 — 패널을 닫아도
+  // 진행 중인 스트림은 계속 대화에 기록된다 (해제는 reset에서만)
   togglePanel: async () => {
-    const { isPanelOpen, setupStreamListener, cleanupStreamListener } = get();
+    const { isPanelOpen, setupStreamListener } = get();
     const newState = !isPanelOpen;
     if (newState) {
       await setupStreamListener();
-    } else {
-      cleanupStreamListener();
     }
     savePanelOpen(newState);
     set({ isPanelOpen: newState });
@@ -464,8 +471,6 @@ export const useAIStore = create<AIState>((set, get) => ({
   },
 
   closePanel: () => {
-    const { cleanupStreamListener } = get();
-    cleanupStreamListener();
     savePanelOpen(false);
     set({ isPanelOpen: false });
   },
@@ -661,6 +666,15 @@ export const useAIStore = create<AIState>((set, get) => ({
       };
     });
 
+    // 프론트 생성 요청 ID — 스트림 이벤트를 이 탭으로 라우팅하고 취소에 사용
+    const requestId = crypto.randomUUID();
+    set((state) => ({
+      requestTabMap: state.activeTabId
+        ? { ...state.requestTabMap, [requestId]: state.activeTabId }
+        : state.requestTabMap,
+      activeRequestId: requestId,
+    }));
+
     try {
       // Send message to backend
       const { isAutoMode, autoApproveTrusted } = get();
@@ -672,6 +686,7 @@ export const useAIStore = create<AIState>((set, get) => ({
           database: database ?? currentConversation?.database,
           auto_mode: isAutoMode,
           auto_approve: autoApproveTrusted,
+          request_id: requestId,
         },
       });
 
@@ -702,10 +717,17 @@ export const useAIStore = create<AIState>((set, get) => ({
         });
       }
     } catch (error) {
-      set({
-        error: String(error),
-        isStreaming: false,
-        streamingMessageId: null,
+      set((state) => {
+        const requestTabMap = { ...state.requestTabMap };
+        delete requestTabMap[requestId];
+        return {
+          error: String(error),
+          isStreaming: false,
+          streamingMessageId: null,
+          requestTabMap,
+          activeRequestId:
+            state.activeRequestId === requestId ? null : state.activeRequestId,
+        };
       });
 
       // Update the assistant message with error
@@ -801,6 +823,14 @@ export const useAIStore = create<AIState>((set, get) => ({
       };
     });
 
+    const requestId = crypto.randomUUID();
+    set((state) => ({
+      requestTabMap: state.activeTabId
+        ? { ...state.requestTabMap, [requestId]: state.activeTabId }
+        : state.requestTabMap,
+      activeRequestId: requestId,
+    }));
+
     try {
       // Send message to backend (is_retry: true to avoid duplicate message)
       const { isAutoMode, autoApproveTrusted } = get();
@@ -813,13 +843,21 @@ export const useAIStore = create<AIState>((set, get) => ({
           is_retry: true,
           auto_mode: isAutoMode,
           auto_approve: autoApproveTrusted,
+          request_id: requestId,
         },
       });
     } catch (error) {
-      set({
-        error: String(error),
-        isStreaming: false,
-        streamingMessageId: null,
+      set((state) => {
+        const requestTabMap = { ...state.requestTabMap };
+        delete requestTabMap[requestId];
+        return {
+          error: String(error),
+          isStreaming: false,
+          streamingMessageId: null,
+          requestTabMap,
+          activeRequestId:
+            state.activeRequestId === requestId ? null : state.activeRequestId,
+        };
       });
 
       // Update the assistant message with error
@@ -909,6 +947,14 @@ export const useAIStore = create<AIState>((set, get) => ({
       };
     });
 
+    const requestId = crypto.randomUUID();
+    set((state) => ({
+      requestTabMap: state.activeTabId
+        ? { ...state.requestTabMap, [requestId]: state.activeTabId }
+        : state.requestTabMap,
+      activeRequestId: requestId,
+    }));
+
     try {
       // Send same message to backend (is_retry: true to avoid duplicate message)
       const { isAutoMode, autoApproveTrusted } = get();
@@ -921,13 +967,21 @@ export const useAIStore = create<AIState>((set, get) => ({
           is_retry: true,
           auto_mode: isAutoMode,
           auto_approve: autoApproveTrusted,
+          request_id: requestId,
         },
       });
     } catch (error) {
-      set({
-        error: String(error),
-        isStreaming: false,
-        streamingMessageId: null,
+      set((state) => {
+        const requestTabMap = { ...state.requestTabMap };
+        delete requestTabMap[requestId];
+        return {
+          error: String(error),
+          isStreaming: false,
+          streamingMessageId: null,
+          requestTabMap,
+          activeRequestId:
+            state.activeRequestId === requestId ? null : state.activeRequestId,
+        };
       });
 
       // Update the assistant message with error
@@ -1012,131 +1066,135 @@ export const useAIStore = create<AIState>((set, get) => ({
   },
 
   // Cancel ongoing request and reset streaming state
-  cancelRequest: () => {
-    const { currentConversation, streamingMessageId } = get();
+  cancelRequest: async () => {
+    const { activeRequestId, streamingMessageId } = get();
 
-    if (!streamingMessageId) return;
+    // 백엔드 스트림 실중단 — HTTP 요청이 drop되어 토큰 소비도 멈춘다
+    // (기존에는 UI 상태만 정리하고 백엔드는 끝까지 스트림을 소비했다)
+    if (activeRequestId) {
+      try {
+        await invoke("cancel_ai_request", { requestId: activeRequestId });
+      } catch (error) {
+        console.warn("Failed to cancel AI request on backend:", error);
+      }
+    }
 
-    // Remove the incomplete assistant message
-    if (currentConversation) {
-      const messages = currentConversation.messages.filter(
-        (msg) => msg.id !== streamingMessageId
-      );
-      const updatedConversation = {
-        ...currentConversation,
-        messages,
-      };
+    set((state) => {
+      const tabId = activeRequestId
+        ? state.requestTabMap[activeRequestId]
+        : state.activeTabId;
+      const requestTabMap = { ...state.requestTabMap };
+      if (activeRequestId) {
+        delete requestTabMap[activeRequestId];
+      }
 
-      set((state) => {
-        const updatedTabs = state.activeTabId
-          ? state.openTabs.map((tab) =>
-              tab.id === state.activeTabId
-                ? { ...tab, conversation: updatedConversation }
-                : tab
-            )
-          : state.openTabs;
-
-        return {
-          currentConversation: updatedConversation,
-          openTabs: updatedTabs,
-          isStreaming: false,
-          streamingMessageId: null,
-          currentStreamContent: "",
-          streamStatus: null,
-          error: null,
-        };
-      });
-    } else {
-      set({
+      const base = {
         isStreaming: false,
         streamingMessageId: null,
         currentStreamContent: "",
         streamStatus: null,
         error: null,
-      });
-    }
+        requestTabMap,
+        activeRequestId: null,
+      };
+
+      // Remove the incomplete assistant message from the owning tab
+      const tab = tabId ? state.openTabs.find((t) => t.id === tabId) : undefined;
+      if (tab?.conversation && streamingMessageId) {
+        const messages = tab.conversation.messages.filter(
+          (msg) => msg.id !== streamingMessageId
+        );
+        const updatedConversation = { ...tab.conversation, messages };
+        return {
+          ...base,
+          openTabs: state.openTabs.map((t) =>
+            t.id === tabId ? { ...t, conversation: updatedConversation } : t
+          ),
+          currentConversation:
+            state.activeTabId === tabId
+              ? updatedConversation
+              : state.currentConversation,
+        };
+      }
+      return base;
+    });
 
     console.log("Request cancelled by user");
   },
 
-  appendStreamContent: (content: string) => {
+  appendStreamContent: (content: string, requestId: string) => {
     set((state) => {
-      const newContent = state.currentStreamContent + content;
-
-      // Update the streaming message
-      if (state.currentConversation && state.streamingMessageId) {
-        const messages = state.currentConversation.messages.map((msg) =>
-          msg.id === state.streamingMessageId
-            ? { ...msg, content: newContent }
-            : msg
-        );
-        const updatedConversation = {
-          ...state.currentConversation,
-          messages,
-        };
-
-        // Also update active tab
-        const updatedTabs = state.activeTabId
-          ? state.openTabs.map((tab) =>
-              tab.id === state.activeTabId
-                ? { ...tab, conversation: updatedConversation }
-                : tab
-            )
-          : state.openTabs;
-
-        return {
-          currentStreamContent: newContent,
-          currentConversation: updatedConversation,
-          openTabs: updatedTabs,
-        };
+      // 요청이 시작된 탭으로 라우팅 — 활성 탭이 아니라 원 소유 탭에 기록
+      const tabId = state.requestTabMap[requestId];
+      const tab = tabId ? state.openTabs.find((t) => t.id === tabId) : undefined;
+      if (!tab?.conversation || !state.streamingMessageId) {
+        return state;
       }
 
-      return { currentStreamContent: newContent };
+      const newContent = state.currentStreamContent + content;
+      const messages = tab.conversation.messages.map((msg) =>
+        msg.id === state.streamingMessageId
+          ? { ...msg, content: newContent }
+          : msg
+      );
+      const updatedConversation = { ...tab.conversation, messages };
+
+      return {
+        currentStreamContent: newContent,
+        openTabs: state.openTabs.map((t) =>
+          t.id === tabId ? { ...t, conversation: updatedConversation } : t
+        ),
+        currentConversation:
+          state.activeTabId === tabId
+            ? updatedConversation
+            : state.currentConversation,
+      };
     });
   },
 
-  finalizeStreamMessage: () => {
+  finalizeStreamMessage: (requestId: string) => {
     set((state) => {
-      if (state.currentConversation && state.streamingMessageId) {
-        const messages = state.currentConversation.messages.map((msg) =>
-          msg.id === state.streamingMessageId
-            ? { ...msg, isStreaming: false }
-            : msg
-        );
-        const updatedConversation = {
-          ...state.currentConversation,
-          messages,
-        };
+      const tabId = state.requestTabMap[requestId];
+      const requestTabMap = { ...state.requestTabMap };
+      delete requestTabMap[requestId];
 
-        // Also update active tab with conversationId if available
-        const updatedTabs = state.activeTabId
-          ? state.openTabs.map((tab) =>
-              tab.id === state.activeTabId
-                ? {
-                    ...tab,
-                    conversation: updatedConversation,
-                    conversationId:
-                      updatedConversation.id || tab.conversationId,
-                  }
-                : tab
-            )
-          : state.openTabs;
-
-        return {
-          isStreaming: false,
-          streamingMessageId: null,
-          currentStreamContent: "",
-          streamStatus: null,
-          currentConversation: updatedConversation,
-          openTabs: updatedTabs,
-        };
-      }
-      return {
+      const base = {
         isStreaming: false,
         streamingMessageId: null,
         currentStreamContent: "",
         streamStatus: null,
+        requestTabMap,
+        activeRequestId:
+          state.activeRequestId === requestId ? null : state.activeRequestId,
       };
+
+      const tab = tabId ? state.openTabs.find((t) => t.id === tabId) : undefined;
+      if (tab?.conversation && state.streamingMessageId) {
+        const messages = tab.conversation.messages.map((msg) =>
+          msg.id === state.streamingMessageId
+            ? { ...msg, isStreaming: false }
+            : msg
+        );
+        const updatedConversation = { ...tab.conversation, messages };
+
+        return {
+          ...base,
+          openTabs: state.openTabs.map((t) =>
+            t.id === tabId
+              ? {
+                  ...t,
+                  conversation: updatedConversation,
+                  conversationId: updatedConversation.id || t.conversationId,
+                }
+              : t
+          ),
+          currentConversation:
+            state.activeTabId === tabId
+              ? updatedConversation
+              : state.currentConversation,
+        };
+      }
+      return base;
     });
 
     // Reload conversations to update the list
@@ -1214,40 +1272,64 @@ export const useAIStore = create<AIState>((set, get) => ({
     try {
       // Listen for ai-stream events
       const unlisten = await listen<AIStreamEvent>("ai-stream", (event) => {
-        const { content, done, error } = event.payload;
+        const { request_id, content, done, error } = event.payload;
+
+        // 등록되지 않은 요청은 무시 — 취소된 스트림의 잔여 이벤트나
+        // 중복 done 이벤트가 상태를 오염시키지 않는다
+        if (!get().requestTabMap[request_id]) {
+          return;
+        }
 
         if (error) {
           set((state) => {
-            if (state.currentConversation && state.streamingMessageId) {
-              const messages = state.currentConversation.messages.map((msg) =>
+            const tabId = state.requestTabMap[request_id];
+            const requestTabMap = { ...state.requestTabMap };
+            delete requestTabMap[request_id];
+
+            const base = {
+              error,
+              isStreaming: false,
+              streamingMessageId: null,
+              streamStatus: null,
+              requestTabMap,
+              activeRequestId:
+                state.activeRequestId === request_id
+                  ? null
+                  : state.activeRequestId,
+            };
+
+            const tab = tabId
+              ? state.openTabs.find((t) => t.id === tabId)
+              : undefined;
+            if (tab?.conversation && state.streamingMessageId) {
+              const messages = tab.conversation.messages.map((msg) =>
                 msg.id === state.streamingMessageId
-                  ? {
-                      ...msg,
-                      content: `오류: ${error}`,
-                      isStreaming: false,
-                    }
+                  ? { ...msg, content: `오류: ${error}`, isStreaming: false }
                   : msg
               );
+              const updatedConversation = { ...tab.conversation, messages };
               return {
-                error,
-                isStreaming: false,
-                streamingMessageId: null,
-                streamStatus: null,
-                currentConversation: {
-                  ...state.currentConversation,
-                  messages,
-                },
+                ...base,
+                openTabs: state.openTabs.map((t) =>
+                  t.id === tabId
+                    ? { ...t, conversation: updatedConversation }
+                    : t
+                ),
+                currentConversation:
+                  state.activeTabId === tabId
+                    ? updatedConversation
+                    : state.currentConversation,
               };
             }
-            return { error, isStreaming: false, streamStatus: null };
+            return base;
           });
           return;
         }
 
         if (done) {
-          get().finalizeStreamMessage();
+          get().finalizeStreamMessage(request_id);
         } else if (content) {
-          get().appendStreamContent(content);
+          get().appendStreamContent(content, request_id);
         }
       });
 
