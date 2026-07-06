@@ -39,6 +39,12 @@ pub fn run() {
             commands::get_table_summary,
             commands::update_column,
             commands::preview_alter_column_sql,
+            // Table browsing/editing commands (parameter-bound)
+            commands::fetch_table_rows,
+            commands::get_primary_keys,
+            commands::update_table_cell,
+            commands::insert_table_row,
+            commands::delete_table_rows,
             // Storage commands
             commands::load_saved_connections,
             commands::save_connection,

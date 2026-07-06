@@ -502,7 +502,7 @@ static ACTIVE_QUERY_THREADS: Lazy<StdMutex<HashMap<String, Vec<u32>>>> =
     Lazy::new(|| StdMutex::new(HashMap::new()));
 
 /// 실행 중 쿼리를 레지스트리에 등록하고 drop 시 해제하는 RAII 가드.
-struct ActiveQueryGuard {
+pub(crate) struct ActiveQueryGuard {
     key: String,
     thread_id: u32,
 }
@@ -518,6 +518,12 @@ impl ActiveQueryGuard {
             thread_id,
         }
     }
+}
+
+/// 취소 레지스트리에 (연결 키 → 서버 스레드 ID)를 등록한다.
+/// 반환된 가드가 drop되면 자동 해제.
+pub(crate) fn register_active_query(key: &str, thread_id: u32) -> ActiveQueryGuard {
+    ActiveQueryGuard::register(key, thread_id)
 }
 
 impl Drop for ActiveQueryGuard {
@@ -599,77 +605,45 @@ async fn execute_query_impl(
             .map_err(|e| format!("Failed to select database: {}", e))?;
     }
 
-    if sql_guard::is_read_only_statement(query) {
-        // Execute query and get result with metadata
-        let mut result = conn.query_iter(query).await
-            .map_err(|e| format!("Query failed: {}", e))?;
+    let result = conn.query_iter(query).await
+        .map_err(|e| format!("Query failed: {}", e))?;
 
-        // Get column metadata BEFORE consuming rows
-        let columns_meta: Vec<_> = result.columns_ref().iter().map(|c| {
-            (
-                c.name_str().to_string(),
-                column_type_to_short_name(c.column_type()).to_string(),
-                c.org_table_str().to_string(),  // Original table name!
-                c.org_name_str().to_string(),   // Original column name!
-            )
-        }).collect();
+    collect_query_result(result, start).await
+}
 
-        // Now collect rows
-        let rows: Vec<Row> = result.collect().await
-            .map_err(|e| format!("Failed to collect rows: {}", e))?;
+/// mysql_async 결과셋을 프론트엔드용 QueryResult로 수집한다.
+///
+/// 텍스트(query_iter)·바이너리(exec_iter) 프로토콜 공용. 결과셋이 있는
+/// 문장(SELECT/SHOW/...)은 rows+메타데이터를, 없는 문장(INSERT/DDL 등)은
+/// affected_rows를 채운다 — 컬럼 메타데이터 유무로 자연 판별.
+pub(crate) async fn collect_query_result<'a, 't, P>(
+    mut result: mysql_async::QueryResult<'a, 't, P>,
+    start: std::time::Instant,
+) -> Result<QueryResult, String>
+where
+    P: mysql_async::prelude::Protocol,
+{
+    // Get column metadata BEFORE consuming rows
+    let columns_meta: Vec<_> = result.columns_ref().iter().map(|c| {
+        (
+            c.name_str().to_string(),
+            column_type_to_short_name(c.column_type()).to_string(),
+            c.org_table_str().to_string(),  // Original table name!
+            c.org_name_str().to_string(),   // Original column name!
+        )
+    }).collect();
 
-        let execution_time_ms = start.elapsed().as_millis() as u64;
+    let affected_rows = result.affected_rows();
 
-        if rows.is_empty() && columns_meta.is_empty() {
-            return Ok(QueryResult {
-                columns: vec![],
-                column_types: vec![],
-                column_tables: vec![],
-                column_org_names: vec![],
-                rows: vec![],
-                affected_rows: 0,
-                execution_time_ms,
-            });
-        }
+    // Now collect rows
+    let rows: Vec<Row> = result.collect().await
+        .map_err(|e| format!("Failed to collect rows: {}", e))?;
 
-        let columns: Vec<String> = columns_meta.iter().map(|(name, _, _, _)| name.clone()).collect();
-        let column_types: Vec<String> = columns_meta.iter().map(|(_, t, _, _)| t.clone()).collect();
-        let column_tables: Vec<String> = columns_meta.iter().map(|(_, _, table, _)| table.clone()).collect();
-        let column_org_names: Vec<String> = columns_meta.iter().map(|(_, _, _, org_name)| org_name.clone()).collect();
+    let execution_time_ms = start.elapsed().as_millis() as u64;
 
-        // Convert rows to JSON values
-        let result_rows: Vec<Vec<serde_json::Value>> = rows
-            .iter()
-            .map(|row| {
-                (0..columns.len())
-                    .map(|i| row_value_to_json(row, i, &column_types[i]))
-                    .collect()
-            })
-            .collect();
-
-        Ok(QueryResult {
-            columns,
-            column_types,
-            column_tables,
-            column_org_names,
-            rows: result_rows,
-            affected_rows: 0,
-            execution_time_ms,
-        })
-    } else {
-        // Non-SELECT query (INSERT, UPDATE, DELETE, etc.)
-        let mut result = conn.query_iter(query).await
-            .map_err(|e| format!("Query failed: {}", e))?;
-
-        let affected_rows = result.affected_rows();
-
-        // Consume the result
-        let _: Vec<Row> = result.collect().await
-            .map_err(|e| format!("Failed to complete query: {}", e))?;
-
-        let execution_time_ms = start.elapsed().as_millis() as u64;
-
-        Ok(QueryResult {
+    if columns_meta.is_empty() {
+        // Non-result-set statement (INSERT, UPDATE, DELETE, DDL, ...)
+        return Ok(QueryResult {
             columns: vec![],
             column_types: vec![],
             column_tables: vec![],
@@ -677,8 +651,33 @@ async fn execute_query_impl(
             rows: vec![],
             affected_rows,
             execution_time_ms,
-        })
+        });
     }
+
+    let columns: Vec<String> = columns_meta.iter().map(|(name, _, _, _)| name.clone()).collect();
+    let column_types: Vec<String> = columns_meta.iter().map(|(_, t, _, _)| t.clone()).collect();
+    let column_tables: Vec<String> = columns_meta.iter().map(|(_, _, table, _)| table.clone()).collect();
+    let column_org_names: Vec<String> = columns_meta.iter().map(|(_, _, _, org_name)| org_name.clone()).collect();
+
+    // Convert rows to JSON values
+    let result_rows: Vec<Vec<serde_json::Value>> = rows
+        .iter()
+        .map(|row| {
+            (0..columns.len())
+                .map(|i| row_value_to_json(row, i, &column_types[i]))
+                .collect()
+        })
+        .collect();
+
+    Ok(QueryResult {
+        columns,
+        column_types,
+        column_tables,
+        column_org_names,
+        rows: result_rows,
+        affected_rows: 0,
+        execution_time_ms,
+    })
 }
 
 pub fn generate_alter_column_sql(

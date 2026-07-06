@@ -25,6 +25,12 @@ export interface QueryResult {
   truncated?: boolean;  // true if results were limited
 }
 
+/** 백엔드 table_ops 커맨드용 (컬럼명, 값) 쌍 — 값은 파라미터 바인딩됨 */
+export interface ColumnValue {
+  column: string;
+  value: string | number | boolean | null;
+}
+
 export interface QueryError {
   message: string;
   errorCode?: string;
@@ -704,38 +710,14 @@ export const useTabStore = create<TabsStore>((set, get) => ({
     }));
 
     try {
-      // Build WHERE clause if filter is provided
-      let whereClause = "";
-      if (filter && filter.column) {
-        const escapeString = (str: string): string => {
-          return str.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-        };
-
-        const { column, operator, value } = filter;
-        if (operator === "IS NULL") {
-          whereClause = ` WHERE \`${column}\` IS NULL`;
-        } else if (operator === "IS NOT NULL") {
-          whereClause = ` WHERE \`${column}\` IS NOT NULL`;
-        } else if (operator === "LIKE") {
-          whereClause = ` WHERE \`${column}\` LIKE '%${escapeString(value)}%'`;
-        } else {
-          whereClause = ` WHERE \`${column}\` ${operator} '${escapeString(value)}'`;
-        }
-      }
-
-      // Build ORDER BY clause if sort is provided
-      let orderByClause = "";
-      if (sort && sort.column && sort.direction) {
-        // Escape backticks in column name for SQL injection prevention
-        const escapedColumn = sort.column.replace(/`/g, '``');
-        const direction = sort.direction === 'desc' ? 'DESC' : 'ASC';
-        orderByClause = ` ORDER BY \`${escapedColumn}\` ${direction}`;
-      }
-
-      const query = `SELECT * FROM \`${tab.selectedDatabase}\`.\`${tab.selectedTable}\`${whereClause}${orderByClause} LIMIT 1000`;
-      const results = await invoke<QueryResult>("execute_query", {
+      // 백엔드가 식별자 인용·값 바인딩·연산자 화이트리스트를 담당한다
+      const results = await invoke<QueryResult>("fetch_table_rows", {
         connectionId: tab.connectionId,
-        query,
+        database: tab.selectedDatabase,
+        table: tab.selectedTable,
+        filter: filter && filter.column ? filter : null,
+        sort: sort && sort.column && sort.direction ? sort : null,
+        limit: 1000,
       });
 
       set((state) => ({
@@ -898,65 +880,20 @@ export const useTabStore = create<TabsStore>((set, get) => ({
       return { success: false, error: "Invalid tab state" };
     }
 
-    // Helper function to escape string values for SQL
-    const escapeString = (str: string): string => {
-      return str.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-    };
-
-    // Helper function to format value for SQL
-    const formatValue = (val: string | number | boolean | null): string => {
-      if (val === null) return "NULL";
-      if (typeof val === "boolean") return val ? "1" : "0";
-      if (typeof val === "number") return String(val);
-      return `'${escapeString(String(val))}'`;
-    };
-
-    // Find primary key columns from tableStructure
-    let pkColumns: string[] = [];
-    if (tab.tableStructure) {
-      pkColumns = tab.tableStructure
-        .filter(col => col.key === 'PRI')
-        .map(col => col.field);
-    }
-
-    // Build WHERE clause - use PK columns if available, otherwise use all columns
-    let whereConditions: string;
-    if (pkColumns.length > 0) {
-      // Use only primary key columns for WHERE
-      whereConditions = pkColumns.map(pkCol => {
-        const colIndex = columns.indexOf(pkCol);
-        if (colIndex === -1) return null;
-        const val = originalRow[colIndex];
-        if (val === null) {
-          return `\`${pkCol}\` IS NULL`;
-        }
-        return `\`${pkCol}\` = ${formatValue(val)}`;
-      }).filter(Boolean).join(" AND ");
-    } else {
-      // Fallback: use all columns (may have issues with date/time types)
-      whereConditions = columns.map((col, i) => {
-        const val = originalRow[i];
-        if (val === null) {
-          return `\`${col}\` IS NULL`;
-        }
-        return `\`${col}\` = ${formatValue(val)}`;
-      }).join(" AND ");
-    }
-
-    if (!whereConditions) {
-      return { success: false, error: "Cannot build WHERE clause" };
-    }
-
-    // Build SET clause
-    const columnName = columns[columnIndex];
-    const setValue = newValue === null ? "NULL" : `'${escapeString(newValue)}'`;
-
-    const sql = `UPDATE \`${tab.selectedDatabase}\`.\`${tab.selectedTable}\` SET \`${columnName}\` = ${setValue} WHERE ${whereConditions} LIMIT 1`;
+    // 백엔드가 PK를 조회해 WHERE를 구성한다 (PK 없으면 전체 컬럼 fallback)
+    const row: ColumnValue[] = columns.map((col, i) => ({
+      column: col,
+      value: originalRow[i],
+    }));
 
     try {
-      await invoke<QueryResult>("execute_query", {
+      await invoke<number>("update_table_cell", {
         connectionId: tab.connectionId,
-        query: sql,
+        database: tab.selectedDatabase,
+        table: tab.selectedTable,
+        column: columns[columnIndex],
+        value: newValue,
+        row,
       });
 
       // Refresh table content after successful update
@@ -978,27 +915,18 @@ export const useTabStore = create<TabsStore>((set, get) => ({
       return { success: false, error: "Invalid tab state" };
     }
 
-    // Helper function to escape string values for SQL
-    const escapeString = (str: string): string => {
-      return str.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-    };
-
-    // Build column and value lists - include all columns, use NULL explicitly for empty values
-    const colList = columns.map(col => `\`${col}\``).join(", ");
-    const valList = values.map(val => {
-      if (val === null || val === "") {
-        return "NULL";
-      }
-      return `'${escapeString(val)}'`;
-    }).join(", ");
-
-    // Build INSERT query with all columns
-    const sql = `INSERT INTO \`${tab.selectedDatabase}\`.\`${tab.selectedTable}\` (${colList}) VALUES (${valList})`;
+    // 빈 문자열은 명시적 NULL로 (기존 동작 유지)
+    const payload: ColumnValue[] = columns.map((col, i) => ({
+      column: col,
+      value: values[i] === null || values[i] === "" ? null : values[i],
+    }));
 
     try {
-      await invoke<QueryResult>("execute_query", {
+      await invoke<number>("insert_table_row", {
         connectionId: tab.connectionId,
-        query: sql,
+        database: tab.selectedDatabase,
+        table: tab.selectedTable,
+        values: payload,
       });
 
       // Refresh table content after successful insert
@@ -1010,6 +938,8 @@ export const useTabStore = create<TabsStore>((set, get) => ({
     }
   },
 
+  // 표시 전용 미리보기 — 실제 실행은 delete_table_rows 커맨드가
+  // 파라미터 바인딩으로 수행한다 (이 문자열은 절대 실행되지 않음)
   buildDeleteQuery: (
     tabId: string,
     rowData: (string | number | boolean | null)[],
@@ -1080,15 +1010,17 @@ export const useTabStore = create<TabsStore>((set, get) => ({
       return { success: false, error: "Invalid tab state" };
     }
 
-    const sql = get().buildDeleteQuery(tabId, rowData, columns);
-    if (!sql) {
-      return { success: false, error: "Cannot build DELETE query" };
-    }
+    const row: ColumnValue[] = columns.map((col, i) => ({
+      column: col,
+      value: rowData[i],
+    }));
 
     try {
-      await invoke<QueryResult>("execute_query", {
+      await invoke<number>("delete_table_rows", {
         connectionId: tab.connectionId,
-        query: sql,
+        database: tab.selectedDatabase,
+        table: tab.selectedTable,
+        rows: [row],
       });
 
       // Refresh table content after successful delete
@@ -1123,63 +1055,37 @@ export const useTabStore = create<TabsStore>((set, get) => ({
       return { success: false, error: "This column is a computed value and cannot be edited" };
     }
 
-    // Helper function to escape string values for SQL
-    const escapeString = (str: string): string => {
-      return str.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-    };
-
-    // Helper function to format value for SQL
-    const formatValue = (val: string | number | boolean | null): string => {
-      if (val === null) return "NULL";
-      if (typeof val === "boolean") return val ? "1" : "0";
-      if (typeof val === "number") return String(val);
-      return `'${escapeString(String(val))}'`;
-    };
-
     try {
       // First, get the primary key columns for this table
-      const pkResult: QueryResult = await invoke("execute_query", {
+      const pkColumns = await invoke<string[]>("get_primary_keys", {
         connectionId: tab.connectionId,
         database: tab.selectedDatabase,
-        query: `SHOW KEYS FROM \`${orgTable}\` WHERE Key_name = 'PRIMARY'`,
+        table: orgTable,
       });
 
-      if (!pkResult.rows || pkResult.rows.length === 0) {
+      if (pkColumns.length === 0) {
         return { success: false, error: "Cannot edit: table has no primary key" };
       }
 
-      // Get PK column names (Column_name is typically at index 4)
-      const columnNameIndex = pkResult.columns.indexOf("Column_name");
-      const pkColumns = pkResult.rows.map(row => String(row[columnNameIndex]));
-
-      // Build WHERE clause using PK values from original row
-      const whereConditions = pkColumns.map(pkCol => {
-        // Find this PK column in our result set
+      // Collect PK values from the original row to identify the target row
+      const row: ColumnValue[] = [];
+      for (const pkCol of pkColumns) {
         const pkColIndex = results.column_org_names.findIndex(
           (col, idx) => col === pkCol && results.column_tables[idx] === orgTable
         );
         if (pkColIndex === -1) {
-          return null;
+          return { success: false, error: "Cannot edit: primary key columns not found in result set" };
         }
-        const val = originalRow[pkColIndex];
-        if (val === null) {
-          return `\`${pkCol}\` IS NULL`;
-        }
-        return `\`${pkCol}\` = ${formatValue(val)}`;
-      }).filter(Boolean);
-
-      if (whereConditions.length !== pkColumns.length) {
-        return { success: false, error: "Cannot edit: primary key columns not found in result set" };
+        row.push({ column: pkCol, value: originalRow[pkColIndex] });
       }
 
-      // Build UPDATE query
-      const updateQuery = `UPDATE \`${tab.selectedDatabase}\`.\`${orgTable}\` SET \`${orgColumn}\` = ${formatValue(newValue)} WHERE ${whereConditions.join(" AND ")} LIMIT 1`;
-
-      // Execute update
-      await invoke("execute_query", {
+      await invoke<number>("update_table_cell", {
         connectionId: tab.connectionId,
         database: tab.selectedDatabase,
-        query: updateQuery,
+        table: orgTable,
+        column: orgColumn,
+        value: newValue,
+        row,
       });
 
       // Update local state - update the specific cell in the results
@@ -1225,34 +1131,17 @@ export const useTabStore = create<TabsStore>((set, get) => ({
 
     const tableName = uniqueTables[0];
 
-    // Helper function to escape string values for SQL
-    const escapeString = (str: string): string => {
-      return str.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-    };
-
-    // Helper function to format value for SQL
-    const formatValue = (val: string | number | boolean | null): string => {
-      if (val === null) return "NULL";
-      if (typeof val === "boolean") return val ? "1" : "0";
-      if (typeof val === "number") return String(val);
-      return `'${escapeString(String(val))}'`;
-    };
-
     try {
       // Get primary key columns for this table
-      const pkResult: QueryResult = await invoke("execute_query", {
+      const pkColumns = await invoke<string[]>("get_primary_keys", {
         connectionId: tab.connectionId,
         database: tab.selectedDatabase,
-        query: `SHOW KEYS FROM \`${tableName}\` WHERE Key_name = 'PRIMARY'`,
+        table: tableName,
       });
 
-      if (!pkResult.rows || pkResult.rows.length === 0) {
+      if (pkColumns.length === 0) {
         return { success: false, error: "Cannot delete: table has no primary key" };
       }
-
-      // Get PK column names
-      const columnNameIndex = pkResult.columns.indexOf("Column_name");
-      const pkColumns = pkResult.rows.map(row => String(row[columnNameIndex]));
 
       // Find PK column indices in result set
       const pkColumnIndices = pkColumns.map(pkCol => {
@@ -1265,39 +1154,30 @@ export const useTabStore = create<TabsStore>((set, get) => ({
         return { success: false, error: "Cannot delete: primary key columns not found in result set" };
       }
 
-      // Delete each row
-      let deletedCount = 0;
+      // 행별 PK 값 목록 — 백엔드가 단일 트랜잭션으로 행별 DELETE 실행
+      // (하나라도 실패하면 전체 롤백)
+      const rows: ColumnValue[][] = rowsToDelete.map(rowData =>
+        pkColumns.map((pkCol, i) => ({
+          column: pkCol,
+          value: rowData[pkColumnIndices[i]],
+        }))
+      );
+
+      const deletedCount = await invoke<number>("delete_table_rows", {
+        connectionId: tab.connectionId,
+        database: tab.selectedDatabase,
+        table: tableName,
+        rows,
+      });
+
+      // Find local indices of deleted rows for state update
       const deletedRowIndices: number[] = [];
-
       for (const rowData of rowsToDelete) {
-        // Build WHERE clause using PK values
-        const whereConditions = pkColumns.map((pkCol, i) => {
-          const val = rowData[pkColumnIndices[i]];
-          if (val === null) {
-            return `\`${pkCol}\` IS NULL`;
-          }
-          return `\`${pkCol}\` = ${formatValue(val)}`;
-        });
-
-        const deleteQuery = `DELETE FROM \`${tab.selectedDatabase}\`.\`${tableName}\` WHERE ${whereConditions.join(" AND ")} LIMIT 1`;
-
-        try {
-          await invoke("execute_query", {
-            connectionId: tab.connectionId,
-            database: tab.selectedDatabase,
-            query: deleteQuery,
-          });
-          deletedCount++;
-
-          // Find the index of this row in results.rows
-          const rowIndex = results.rows.findIndex(row =>
-            pkColumnIndices.every((pkIdx) => row[pkIdx] === rowData[pkIdx])
-          );
-          if (rowIndex !== -1) {
-            deletedRowIndices.push(rowIndex);
-          }
-        } catch (rowError) {
-          console.error("Failed to delete row:", rowError);
+        const rowIndex = results.rows.findIndex(row =>
+          pkColumnIndices.every((pkIdx) => row[pkIdx] === rowData[pkIdx])
+        );
+        if (rowIndex !== -1) {
+          deletedRowIndices.push(rowIndex);
         }
       }
 

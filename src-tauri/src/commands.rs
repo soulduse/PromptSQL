@@ -10,8 +10,9 @@ use crate::ai::{
     router, streaming, SharedAIManager,
 };
 use crate::db::{
-    generate_alter_column_sql, ColumnInfo, ConnectionConfig, ConnectionResult, IndexInfo,
-    QueryResult, SharedConnectionManager, TableDetailInfo, TableSummary, UpdateColumnRequest,
+    generate_alter_column_sql, table_ops, ColumnInfo, ConnectionConfig, ConnectionResult,
+    IndexInfo, QueryResult, SharedConnectionManager, TableDetailInfo, TableSummary,
+    UpdateColumnRequest,
 };
 use crate::storage::{self, ConnectionWithPassword};
 use serde::{Deserialize, Serialize};
@@ -111,6 +112,92 @@ pub async fn cancel_query(
 
     // Execute cancel on the cloned pool without holding the manager lock
     crate::db::cancel_query_on_pool(&pool, &connection_id).await
+}
+
+/// manager 락을 짧게 잡고 풀 클론만 꺼내는 공용 헬퍼
+async fn clone_pool(
+    manager: &State<'_, SharedConnectionManager>,
+    connection_id: &str,
+) -> Result<mysql_async::Pool, String> {
+    let manager = manager.lock().await;
+    manager
+        .get_pool(connection_id)
+        .cloned()
+        .ok_or_else(|| "Connection not found".to_string())
+}
+
+// Table browsing/editing commands (parameter-bound; replaces frontend SQL assembly)
+
+#[tauri::command]
+pub async fn fetch_table_rows(
+    manager: State<'_, SharedConnectionManager>,
+    connection_id: String,
+    database: String,
+    table: String,
+    filter: Option<table_ops::TableFilter>,
+    sort: Option<table_ops::TableSort>,
+    limit: Option<u32>,
+) -> Result<QueryResult, String> {
+    let pool = clone_pool(&manager, &connection_id).await?;
+    table_ops::fetch_table_rows(
+        &pool,
+        &database,
+        &table,
+        filter.as_ref(),
+        sort.as_ref(),
+        limit,
+        Some(&connection_id),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn get_primary_keys(
+    manager: State<'_, SharedConnectionManager>,
+    connection_id: String,
+    database: String,
+    table: String,
+) -> Result<Vec<String>, String> {
+    let pool = clone_pool(&manager, &connection_id).await?;
+    table_ops::get_primary_key_columns(&pool, &database, &table).await
+}
+
+#[tauri::command]
+pub async fn update_table_cell(
+    manager: State<'_, SharedConnectionManager>,
+    connection_id: String,
+    database: String,
+    table: String,
+    column: String,
+    value: serde_json::Value,
+    row: Vec<table_ops::ColumnValue>,
+) -> Result<u64, String> {
+    let pool = clone_pool(&manager, &connection_id).await?;
+    table_ops::update_table_cell(&pool, &database, &table, &column, &value, &row).await
+}
+
+#[tauri::command]
+pub async fn insert_table_row(
+    manager: State<'_, SharedConnectionManager>,
+    connection_id: String,
+    database: String,
+    table: String,
+    values: Vec<table_ops::ColumnValue>,
+) -> Result<u64, String> {
+    let pool = clone_pool(&manager, &connection_id).await?;
+    table_ops::insert_table_row(&pool, &database, &table, &values).await
+}
+
+#[tauri::command]
+pub async fn delete_table_rows(
+    manager: State<'_, SharedConnectionManager>,
+    connection_id: String,
+    database: String,
+    table: String,
+    rows: Vec<Vec<table_ops::ColumnValue>>,
+) -> Result<u64, String> {
+    let pool = clone_pool(&manager, &connection_id).await?;
+    table_ops::delete_table_rows(&pool, &database, &table, &rows).await
 }
 
 #[tauri::command]
