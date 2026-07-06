@@ -133,6 +133,10 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
   function QueryEditor({ value, onChange, onExecute, onOpenHistory, onToggleAI, onSelectionChange, tables = [], errorInfo }, ref) {
   const monacoRef = useRef<Monaco | null>(null);
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+  // 모델 참조를 별도 보관 — @monaco-editor/react가 자식 unmount에서
+  // 에디터를 먼저 dispose하므로, 부모 cleanup 시점에 getModel()을
+  // 다시 부르면 실패하거나 modelTables 엔트리가 누수된다
+  const modelRef = useRef<editor.ITextModel | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const tablesRef = useRef<string[]>(tables);
   const onSelectionChangeRef = useRef(onSelectionChange);
@@ -203,9 +207,8 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
   // Update tablesRef when tables change
   useEffect(() => {
     tablesRef.current = tables;
-    const model = editorRef.current?.getModel();
-    if (model) {
-      modelTables.set(model, tables);
+    if (modelRef.current) {
+      modelTables.set(modelRef.current, tables);
     }
   }, [tables]);
 
@@ -321,6 +324,7 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
     ensureCompletionProvider(monaco);
     const model = editorInstance.getModel();
     if (model) {
+      modelRef.current = model;
       modelTables.set(model, tablesRef.current);
     }
   };
@@ -328,9 +332,9 @@ export const QueryEditor = forwardRef<QueryEditorHandle, QueryEditorProps>(
   // Cleanup: 이 에디터의 테이블 매핑만 해제 (provider는 전역 공유라 유지)
   useEffect(() => {
     return () => {
-      const model = editorRef.current?.getModel();
-      if (model) {
-        modelTables.delete(model);
+      if (modelRef.current) {
+        modelTables.delete(modelRef.current);
+        modelRef.current = null;
       }
     };
   }, []);
