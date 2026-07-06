@@ -21,6 +21,47 @@ impl OllamaProvider {
             base_url: "http://localhost:11434".to_string(),
         }
     }
+
+    /// 로컬에 설치된 모델 목록을 동적으로 조회한다 (GET /api/tags).
+    /// Ollama 미기동 등 실패 시 에러 — 호출자가 정적 목록으로 fallback.
+    pub async fn list_installed_models(&self) -> Result<Vec<ModelInfo>, AIError> {
+        let response = self
+            .client
+            .get(format!("{}/api/tags", self.base_url))
+            .send()
+            .await
+            .map_err(|e| AIError::HttpError(format!("Ollama connection failed: {}", e)))?;
+
+        if !response.status().is_success() {
+            return Err(AIError::ProviderError(format!(
+                "Ollama API error {}",
+                response.status()
+            )));
+        }
+
+        let json: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| AIError::InvalidResponse(e.to_string()))?;
+
+        let models: Vec<ModelInfo> = json["models"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|m| m["name"].as_str())
+                    .map(|name| ModelInfo {
+                        id: name.to_string(),
+                        name: name.to_string(),
+                        provider: ProviderType::Ollama,
+                        max_tokens: 128000,
+                        supports_streaming: true,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        Ok(models)
+    }
 }
 
 #[async_trait]
@@ -30,37 +71,8 @@ impl LLMProvider for OllamaProvider {
     }
 
     fn available_models(&self) -> Vec<ModelInfo> {
-        // Default models - actual models depend on what's installed locally
-        vec![
-            ModelInfo {
-                id: "llama4".to_string(),
-                name: "Llama 4".to_string(),
-                provider: ProviderType::Ollama,
-                max_tokens: 128000,
-                supports_streaming: true,
-            },
-            ModelInfo {
-                id: "qwen3".to_string(),
-                name: "Qwen 3".to_string(),
-                provider: ProviderType::Ollama,
-                max_tokens: 128000,
-                supports_streaming: true,
-            },
-            ModelInfo {
-                id: "deepseek-r1".to_string(),
-                name: "DeepSeek R1".to_string(),
-                provider: ProviderType::Ollama,
-                max_tokens: 128000,
-                supports_streaming: true,
-            },
-            ModelInfo {
-                id: "gemma3".to_string(),
-                name: "Gemma 3".to_string(),
-                provider: ProviderType::Ollama,
-                max_tokens: 128000,
-                supports_streaming: true,
-            },
-        ]
+        // Static fallback — 실제 설치 목록은 list_installed_models가 우선
+        crate::ai::models::model_infos(ProviderType::Ollama)
     }
 
     async fn complete_stream(

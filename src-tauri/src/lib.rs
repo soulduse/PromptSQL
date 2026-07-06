@@ -70,6 +70,7 @@ pub fn run() {
             commands::has_ai_api_key,
             commands::get_all_api_key_status,
             commands::get_available_models,
+            commands::list_ollama_models,
             commands::set_ai_provider,
             commands::test_ai_connection,
             commands::verify_ai_api_key,

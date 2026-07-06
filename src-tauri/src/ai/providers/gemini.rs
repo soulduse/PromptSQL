@@ -32,36 +32,7 @@ impl LLMProvider for GeminiProvider {
     }
 
     fn available_models(&self) -> Vec<ModelInfo> {
-        vec![
-            ModelInfo {
-                id: "gemini-3.1-pro-preview".to_string(),
-                name: "Gemini 3.1 Pro".to_string(),
-                provider: ProviderType::Gemini,
-                max_tokens: 1000000,
-                supports_streaming: true,
-            },
-            ModelInfo {
-                id: "gemini-3.1-flash-lite-preview".to_string(),
-                name: "Gemini 3.1 Flash Lite".to_string(),
-                provider: ProviderType::Gemini,
-                max_tokens: 1000000,
-                supports_streaming: true,
-            },
-            ModelInfo {
-                id: "gemini-2.5-pro".to_string(),
-                name: "Gemini 2.5 Pro".to_string(),
-                provider: ProviderType::Gemini,
-                max_tokens: 1000000,
-                supports_streaming: true,
-            },
-            ModelInfo {
-                id: "gemini-2.5-flash".to_string(),
-                name: "Gemini 2.5 Flash".to_string(),
-                provider: ProviderType::Gemini,
-                max_tokens: 1000000,
-                supports_streaming: true,
-            },
-        ]
+        crate::ai::models::model_infos(ProviderType::Gemini)
     }
 
     async fn complete_stream(

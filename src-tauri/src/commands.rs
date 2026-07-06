@@ -468,6 +468,25 @@ pub async fn get_available_models(
     Ok(models)
 }
 
+/// 로컬 Ollama에 실제 설치된 모델 목록 (/api/tags).
+/// 미기동·실패·빈 목록이면 정적 fallback을 반환한다 — 프론트는 이 결과를
+/// 그대로 Ollama 모델 목록으로 사용하면 된다.
+#[tauri::command]
+pub async fn list_ollama_models(
+    ai_manager: State<'_, SharedAIManager>,
+) -> Result<Vec<ModelInfo>, String> {
+    // 네트워크 호출 동안 락을 잡지 않도록 클론 후 즉시 반납
+    let ollama = {
+        let manager = ai_manager.lock().await;
+        manager.ollama.clone()
+    };
+
+    match ollama.list_installed_models().await {
+        Ok(models) if !models.is_empty() => Ok(models),
+        _ => Ok(crate::ai::models::model_infos(ProviderType::Ollama)),
+    }
+}
+
 #[tauri::command]
 pub async fn set_ai_provider(
     ai_manager: State<'_, SharedAIManager>,

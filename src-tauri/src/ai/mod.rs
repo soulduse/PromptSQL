@@ -2,6 +2,7 @@ pub mod auto_mode;
 pub mod config;
 pub mod context;
 pub mod conversations;
+pub mod models;
 pub mod prompt;
 pub mod provider;
 pub mod providers;
@@ -146,8 +147,8 @@ impl AIManager {
             anthropic: AnthropicProvider::new(),
             gemini: GeminiProvider::new(),
             ollama: OllamaProvider::new(),
-            current_provider: ProviderType::OpenAI,
-            current_model: "gpt-5.4-mini".to_string(),
+            current_provider: models::DEFAULT_PROVIDER,
+            current_model: models::DEFAULT_MODEL.to_string(),
         }
     }
 

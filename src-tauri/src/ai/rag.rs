@@ -793,8 +793,9 @@ pub async fn search_relevant_tables(
 
     let response = client
         .post(format!(
-            "{}/models/gemini-2.5-flash:generateContent",
-            GEMINI_API_BASE
+            "{}/models/{}:generateContent",
+            GEMINI_API_BASE,
+            crate::ai::models::RAG_QUERY_MODEL
         ))
         .header("x-goog-api-key", api_key)
         .json(&body)

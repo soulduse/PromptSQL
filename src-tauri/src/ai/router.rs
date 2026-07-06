@@ -74,12 +74,9 @@ pub fn find_light_model(available_models: &[String]) -> Option<String> {
 
 /// Provider별 기본 경량 모델 반환
 pub fn get_default_light_model(provider: &ProviderType) -> &'static str {
-    match provider {
-        ProviderType::OpenAI => "gpt-5.4-mini",
-        ProviderType::Anthropic => "claude-haiku-4-5",
-        ProviderType::Gemini => "gemini-2.5-flash",
-        ProviderType::Ollama => "llama4", // Ollama는 로컬이라 비용 무관
-    }
+    // 단일 소스: ai/models.rs — available_models와 항상 일치한다
+    // (과거 gemini-2.5-flash처럼 목록에 없는 기본값이 생기는 것을 방지)
+    crate::ai::models::default_light_model(*provider)
 }
 
 /// 모델 라우팅 결과

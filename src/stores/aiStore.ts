@@ -1206,7 +1206,29 @@ export const useAIStore = create<AIState>((set, get) => ({
     set({ isLoadingModels: true });
     try {
       const models = await invoke<ModelInfo[]>("get_available_models");
-      set({ availableModels: models, isLoadingModels: false });
+
+      // Ollama는 로컬 설치 목록(/api/tags)으로 대체 — 실패 시 정적 목록 유지
+      let merged = models;
+      try {
+        const ollamaModels = await invoke<ModelInfo[]>("list_ollama_models");
+        if (ollamaModels.length > 0) {
+          merged = [...models.filter((m) => m.provider !== "ollama"), ...ollamaModels];
+        }
+      } catch {
+        // Ollama 미기동 등 — 정적 목록 그대로 사용
+      }
+
+      set({ availableModels: merged, isLoadingModels: false });
+
+      // 저장된 모델이 현재 목록에 없으면(서비스 종료 모델 등) 해당
+      // 프로바이더의 첫 모델로 보정 — 404 나는 죽은 모델로 요청 방지
+      const { provider, model } = get();
+      const providerModels = merged.filter((m) => m.provider === provider);
+      if (providerModels.length > 0 && !providerModels.some((m) => m.id === model)) {
+        const fallback = providerModels[0].id;
+        console.warn(`Saved model "${model}" is no longer available; falling back to "${fallback}"`);
+        await get().setProviderAndModel(provider, fallback);
+      }
     } catch (error) {
       set({ error: String(error), isLoadingModels: false });
     }
