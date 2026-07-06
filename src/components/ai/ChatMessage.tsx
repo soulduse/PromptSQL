@@ -41,7 +41,7 @@ function parseAutoQueryResults(content: string): ParsedContent[] {
         queryData,
         index: parseInt(match[1], 10),
       });
-    } catch (e) {
+    } catch {
       // If parsing fails, treat as text
       results.push({ type: "text", content: match[0] });
     }

@@ -65,7 +65,6 @@ function highlightSql(sql: string): React.ReactElement[] {
       if (stringMatch) {
         tokens.push(<span key={`${lineIndex}-${keyIndex++}`} className="text-amber-400">{stringMatch[0]}</span>);
         remaining = remaining.slice(stringMatch[0].length);
-        matched = true;
         continue;
       }
 
@@ -74,7 +73,6 @@ function highlightSql(sql: string): React.ReactElement[] {
       if (backtickMatch) {
         tokens.push(<span key={`${lineIndex}-${keyIndex++}`} className="text-cyan-400">{backtickMatch[0]}</span>);
         remaining = remaining.slice(backtickMatch[0].length);
-        matched = true;
         continue;
       }
 
@@ -83,7 +81,6 @@ function highlightSql(sql: string): React.ReactElement[] {
       if (numberMatch) {
         tokens.push(<span key={`${lineIndex}-${keyIndex++}`} className="text-purple-400">{numberMatch[0]}</span>);
         remaining = remaining.slice(numberMatch[0].length);
-        matched = true;
         continue;
       }
 

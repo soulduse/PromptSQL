@@ -55,13 +55,18 @@ pub fn classify_complexity(message: &str) -> QueryComplexity {
 }
 
 /// 사용 가능한 모델 목록에서 경량 모델 찾기
+///
+/// 패턴은 구분자(`-`, `.`, `_`, `:`)로 나뉜 세그먼트 단위로 비교한다.
+/// 단순 substring 비교는 "gemini"가 "mini"에 매치되어 pro 모델을
+/// 경량으로 오판하는 버그가 있었다.
 pub fn find_light_model(available_models: &[String]) -> Option<String> {
     for model in available_models {
         let model_lower = model.to_lowercase();
-        for pattern in LIGHT_MODEL_PATTERNS {
-            if model_lower.contains(pattern) {
-                return Some(model.clone());
-            }
+        let is_light = model_lower
+            .split(|c: char| !c.is_ascii_alphanumeric())
+            .any(|segment| LIGHT_MODEL_PATTERNS.contains(&segment));
+        if is_light {
+            return Some(model.clone());
         }
     }
     None

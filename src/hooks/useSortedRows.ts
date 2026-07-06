@@ -59,7 +59,7 @@ export function useSortedRows({
       if (valA === null) return 1;
       if (valB === null) return -1;
 
-      let comparison = 0;
+      let comparison: number;
 
       if (isNumericType) {
         // Numeric comparison

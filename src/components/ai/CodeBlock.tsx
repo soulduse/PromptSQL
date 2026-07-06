@@ -81,7 +81,7 @@ export function highlightSQL(code: string, isDark: boolean): React.ReactNode[] {
 
   // Add remaining text
   if (currentIndex < code.length) {
-    result.push(<span key={keyIndex++}>{code.slice(currentIndex)}</span>);
+    result.push(<span key={keyIndex}>{code.slice(currentIndex)}</span>);
   }
 
   return result;

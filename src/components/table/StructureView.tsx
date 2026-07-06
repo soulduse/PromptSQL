@@ -806,13 +806,9 @@ export function StructureView({
       if (toIndex === 0) {
         positionClause = 'FIRST';
       } else {
-        // Calculate the correct "after" column
-        // If moving down, account for the original position
-        let afterColumnIndex = toIndex - 1;
-        if (toIndex > fromIndex) {
-          // Moving down: afterColumnIndex is correct as-is
-        }
-        // If moving up, afterColumnIndex is correct as-is
+        // The "after" column is the one currently rendered just above the drop
+        // position, regardless of move direction.
+        const afterColumnIndex = toIndex - 1;
         const afterColumn = structure[afterColumnIndex];
         positionClause = `AFTER \`${afterColumn.field}\``;
       }
