@@ -1,5 +1,7 @@
 use mysql_async::prelude::*;
-use mysql_async::{Opts, OptsBuilder, Pool, Row, Value, consts::ColumnType};
+use mysql_async::{
+    consts::ColumnType, Conn, Opts, OptsBuilder, Pool, PoolConstraints, PoolOpts, Row, Value,
+};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -62,6 +64,12 @@ pub struct ConnectionResult {
     pub connection_id: Option<String>,
 }
 
+/// 단일 결과셋 행 수 상한 — 초과분은 드레인만 하고 버린다 (truncated 표시)
+pub const MAX_RESULT_ROWS: usize = 5000;
+
+/// 커넥션 획득 대기 상한
+const GET_CONN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
 #[derive(Debug, Serialize)]
 pub struct QueryResult {
     pub columns: Vec<String>,
@@ -71,6 +79,8 @@ pub struct QueryResult {
     pub rows: Vec<Vec<serde_json::Value>>,
     pub affected_rows: u64,
     pub execution_time_ms: u64,
+    /// MAX_RESULT_ROWS 초과로 결과가 잘렸는지 여부
+    pub truncated: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -145,6 +155,10 @@ pub struct UpdateColumnRequest {
 
 pub struct ConnectionManager {
     pools: HashMap<String, Pool>,
+    /// (연결 ID, 데이터베이스) → 전용 풀.
+    /// 풀 커넥션에 USE를 실행하면 반납 후 다른 요청이 오염된 기본 DB를
+    /// 물려받는다 — DB 선택은 풀 단위로 분리한다.
+    db_pools: HashMap<(String, String), Pool>,
     configs: HashMap<String, ConnectionConfig>,
 }
 
@@ -152,6 +166,7 @@ impl ConnectionManager {
     pub fn new() -> Self {
         Self {
             pools: HashMap::new(),
+            db_pools: HashMap::new(),
             configs: HashMap::new(),
         }
     }
@@ -160,8 +175,40 @@ impl ConnectionManager {
         self.pools.get(id)
     }
 
-    pub fn get_config(&self, id: &str) -> Option<&ConnectionConfig> {
-        self.configs.get(id)
+    /// 특정 데이터베이스가 기본 스키마로 설정된 풀을 반환한다 (없으면 생성).
+    pub fn get_pool_for_db(&mut self, id: &str, database: Option<&str>) -> Result<Pool, String> {
+        let Some(db) = database.filter(|d| !d.is_empty()) else {
+            return self
+                .pools
+                .get(id)
+                .cloned()
+                .ok_or_else(|| "Connection not found".to_string());
+        };
+
+        let key = (id.to_string(), db.to_string());
+        if let Some(pool) = self.db_pools.get(&key) {
+            return Ok(pool.clone());
+        }
+
+        let config = self
+            .configs
+            .get(id)
+            .ok_or_else(|| "Connection not found".to_string())?;
+        let mut db_config = config.clone();
+        db_config.database = Some(db.to_string());
+
+        let pool = Pool::new(build_opts(&db_config));
+        self.db_pools.insert(key, pool.clone());
+        Ok(pool)
+    }
+
+    /// 풀을 우회하는 단독 커넥션용 Opts (쿼리 취소 등 — 풀이 고갈된
+    /// 상황에서도 동작해야 하는 작업에 사용)
+    pub fn standalone_opts(&self, id: &str) -> Result<Opts, String> {
+        self.configs
+            .get(id)
+            .map(build_opts)
+            .ok_or_else(|| "Connection not found".to_string())
     }
 
     pub async fn test_connection(&self, config: &ConnectionConfig) -> ConnectionResult {
@@ -235,16 +282,23 @@ impl ConnectionManager {
     pub async fn disconnect(&mut self, id: &str) -> bool {
         if let Some(pool) = self.pools.remove(id) {
             self.configs.remove(id);
+            // 이 연결의 DB별 전용 풀도 함께 정리
+            let db_keys: Vec<_> = self
+                .db_pools
+                .keys()
+                .filter(|(conn_id, _)| conn_id == id)
+                .cloned()
+                .collect();
+            for key in db_keys {
+                if let Some(db_pool) = self.db_pools.remove(&key) {
+                    db_pool.disconnect().await.ok();
+                }
+            }
             pool.disconnect().await.ok();
             true
         } else {
             false
         }
-    }
-
-    pub async fn execute_query(&self, id: &str, database: Option<&str>, query: &str) -> Result<QueryResult, String> {
-        let pool = self.pools.get(id).ok_or("Connection not found")?;
-        execute_query_impl(pool, database, query, Some(id)).await
     }
 
     pub async fn get_databases(&self, id: &str) -> Result<Vec<String>, String> {
@@ -486,11 +540,17 @@ impl ConnectionManager {
 
         Ok(())
     }
+}
 
-    pub async fn cancel_query(&self, id: &str) -> Result<u32, String> {
-        let pool = self.pools.get(id).ok_or("Connection not found")?;
-        cancel_query_impl(pool, id).await
-    }
+/// 풀에서 커넥션을 획득하되 GET_CONN_TIMEOUT을 넘기면 실패시킨다 —
+/// 풀 고갈 시 무한 대기 대신 명확한 에러를 반환한다.
+pub(crate) async fn get_conn_timeout(pool: &Pool) -> Result<Conn, String> {
+    tokio::time::timeout(GET_CONN_TIMEOUT, pool.get_conn())
+        .await
+        .map_err(|_| {
+            "Connection pool exhausted: timed out waiting for a connection".to_string()
+        })?
+        .map_err(|e| format!("Failed to acquire connection: {}", e))
 }
 
 /// 실행 중인 쿼리의 (앱 연결 ID → 서버 스레드 ID 목록) 레지스트리.
@@ -549,18 +609,19 @@ fn active_thread_ids(key: &str) -> Vec<u32> {
         .unwrap_or_default()
 }
 
-/// Cancel running queries on a pool (standalone function that doesn't require manager lock)
-pub async fn cancel_query_on_pool(pool: &Pool, connection_key: &str) -> Result<u32, String> {
-    cancel_query_impl(pool, connection_key).await
-}
-
-async fn cancel_query_impl(pool: &Pool, connection_key: &str) -> Result<u32, String> {
+/// 등록된 자기 쿼리들을 KILL 한다.
+///
+/// 풀이 아닌 **단독 커넥션**을 사용한다 — 취소하려는 쿼리들이 풀을
+/// 점유 중이면 풀 경유로는 취소 커넥션을 얻을 수 없다.
+pub async fn cancel_query_with_opts(opts: Opts, connection_key: &str) -> Result<u32, String> {
     let thread_ids = active_thread_ids(connection_key);
     if thread_ids.is_empty() {
         return Ok(0);
     }
 
-    let mut conn = pool.get_conn().await.map_err(|e| format!("Failed to get connection: {}", e))?;
+    let mut conn = Conn::new(opts)
+        .await
+        .map_err(|e| format!("Failed to open cancel connection: {}", e))?;
 
     let mut killed_count = 0u32;
     for thread_id in thread_ids {
@@ -570,40 +631,28 @@ async fn cancel_query_impl(pool: &Pool, connection_key: &str) -> Result<u32, Str
         }
     }
 
+    conn.disconnect().await.ok();
+
     Ok(killed_count)
 }
 
 /// Execute query on a pool (standalone function that doesn't require manager lock)
 ///
+/// 데이터베이스 선택은 DB별 풀(`get_pool_for_db`)로 해결한다 —
+/// 풀 커넥션에 USE를 실행하던 방식은 반납 후 다른 요청을 오염시켰다.
+///
 /// `cancel_key`가 주어지면 실행 동안 취소 레지스트리에 등록되어
-/// `cancel_query_on_pool(pool, key)`로 중단할 수 있다.
+/// `cancel_query_with_opts`로 중단할 수 있다.
 pub async fn execute_query_on_pool(
     pool: &Pool,
-    database: Option<&str>,
-    query: &str,
-    cancel_key: Option<&str>,
-) -> Result<QueryResult, String> {
-    execute_query_impl(pool, database, query, cancel_key).await
-}
-
-async fn execute_query_impl(
-    pool: &Pool,
-    database: Option<&str>,
     query: &str,
     cancel_key: Option<&str>,
 ) -> Result<QueryResult, String> {
     let start = std::time::Instant::now();
 
-    let mut conn = pool.get_conn().await
-        .map_err(|e| format!("Failed to acquire connection: {}", e))?;
+    let mut conn = get_conn_timeout(pool).await?;
 
     let _cancel_guard = cancel_key.map(|key| ActiveQueryGuard::register(key, conn.id()));
-
-    // Execute USE database
-    if let Some(db) = database {
-        conn.query_drop(format!("USE {}", sql_guard::quote_ident(db))).await
-            .map_err(|e| format!("Failed to select database: {}", e))?;
-    }
 
     let result = conn.query_iter(query).await
         .map_err(|e| format!("Query failed: {}", e))?;
@@ -635,9 +684,21 @@ where
 
     let affected_rows = result.affected_rows();
 
-    // Now collect rows
-    let rows: Vec<Row> = result.collect().await
-        .map_err(|e| format!("Failed to collect rows: {}", e))?;
+    // 상한까지만 수집하고 잔여 행은 드레인 — 대용량 SELECT가 메모리를
+    // 전량 점유하지 않고, 프로토콜 정리를 위해 결과셋은 끝까지 소비한다
+    let mut rows: Vec<Row> = Vec::new();
+    let mut truncated = false;
+    while let Some(row) = result
+        .next()
+        .await
+        .map_err(|e| format!("Failed to collect rows: {}", e))?
+    {
+        if rows.len() < MAX_RESULT_ROWS {
+            rows.push(row);
+        } else {
+            truncated = true;
+        }
+    }
 
     let execution_time_ms = start.elapsed().as_millis() as u64;
 
@@ -651,6 +712,7 @@ where
             rows: vec![],
             affected_rows,
             execution_time_ms,
+            truncated: false,
         });
     }
 
@@ -677,6 +739,7 @@ where
         rows: result_rows,
         affected_rows: 0,
         execution_time_ms,
+        truncated,
     })
 }
 
@@ -743,12 +806,18 @@ fn build_opts(config: &ConnectionConfig) -> Opts {
     // 패닉하지 않는다 (기존 Opts::from_url().expect() 대체)
     let db_name = config.database.as_ref().filter(|db| !db.is_empty()).cloned();
 
+    // 풀 상한 없이는 동시 요청 수만큼 서버 커넥션이 증식한다
+    let constraints =
+        PoolConstraints::new(1, 8).expect("1 <= 8 is a valid pool constraint range");
+    let pool_opts = PoolOpts::default().with_constraints(constraints);
+
     OptsBuilder::default()
         .ip_or_hostname(config.host.clone())
         .tcp_port(config.port)
         .user(Some(config.user.clone()))
         .pass(Some(config.password.clone()))
         .db_name(db_name)
+        .pool_opts(pool_opts)
         .into()
 }
 

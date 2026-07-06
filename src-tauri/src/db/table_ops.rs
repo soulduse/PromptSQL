@@ -8,7 +8,7 @@ use mysql_async::prelude::*;
 use mysql_async::{Params, Pool, TxOpts, Value};
 use serde::Deserialize;
 
-use super::connection::{collect_query_result, register_active_query, QueryResult};
+use super::connection::{collect_query_result, get_conn_timeout, register_active_query, QueryResult};
 use super::sql_guard::quote_ident;
 
 /// (컬럼명, JSON 값) 쌍 — 행 식별(WHERE)과 쓰기 값(SET/INSERT) 공용
@@ -33,7 +33,8 @@ pub struct TableSort {
 }
 
 const DEFAULT_FETCH_LIMIT: u32 = 1000;
-const MAX_FETCH_LIMIT: u32 = 10_000;
+// connection::MAX_RESULT_ROWS와 정합 — 그 이상 요청해도 결과가 잘린다
+const MAX_FETCH_LIMIT: u32 = 5000;
 
 const BINARY_OPERATORS: &[&str] = &["=", "!=", "<>", ">", "<", ">=", "<=", "LIKE"];
 const UNARY_OPERATORS: &[&str] = &["IS NULL", "IS NOT NULL"];
@@ -168,10 +169,7 @@ pub async fn get_primary_key_columns(
     database: &str,
     table: &str,
 ) -> Result<Vec<String>, String> {
-    let mut conn = pool
-        .get_conn()
-        .await
-        .map_err(|e| format!("Failed to acquire connection: {}", e))?;
+    let mut conn = get_conn_timeout(pool).await?;
 
     conn.exec(
         r#"SELECT CAST(COLUMN_NAME AS CHAR)
@@ -197,10 +195,7 @@ pub async fn fetch_table_rows(
     let (sql, params) = build_select_sql(database, table, filter, sort, limit)?;
 
     let start = std::time::Instant::now();
-    let mut conn = pool
-        .get_conn()
-        .await
-        .map_err(|e| format!("Failed to acquire connection: {}", e))?;
+    let mut conn = get_conn_timeout(pool).await?;
     let _cancel_guard = cancel_key.map(|key| register_active_query(key, conn.id()));
 
     let result = conn
@@ -234,10 +229,7 @@ pub async fn update_table_cell(
     let mut params = vec![json_to_mysql_value(value)?];
     params.extend(where_params);
 
-    let mut conn = pool
-        .get_conn()
-        .await
-        .map_err(|e| format!("Failed to acquire connection: {}", e))?;
+    let mut conn = get_conn_timeout(pool).await?;
     conn.exec_drop(sql, to_params(params))
         .await
         .map_err(|e| format!("Update failed: {}", e))?;
@@ -275,10 +267,7 @@ pub async fn insert_table_row(
         .map(|cv| json_to_mysql_value(&cv.value))
         .collect::<Result<Vec<_>, _>>()?;
 
-    let mut conn = pool
-        .get_conn()
-        .await
-        .map_err(|e| format!("Failed to acquire connection: {}", e))?;
+    let mut conn = get_conn_timeout(pool).await?;
     conn.exec_drop(sql, to_params(params))
         .await
         .map_err(|e| format!("Insert failed: {}", e))?;
@@ -301,10 +290,7 @@ pub async fn delete_table_rows(
 
     let pk_columns = get_primary_key_columns(pool, database, table).await?;
 
-    let mut conn = pool
-        .get_conn()
-        .await
-        .map_err(|e| format!("Failed to acquire connection: {}", e))?;
+    let mut conn = get_conn_timeout(pool).await?;
     let mut tx = conn
         .start_transaction(TxOpts::default())
         .await
@@ -422,7 +408,7 @@ mod tests {
     #[test]
     fn test_build_select_sql_caps_limit() {
         let (sql, _) = build_select_sql("db", "t", None, None, Some(999_999)).unwrap();
-        assert!(sql.ends_with("LIMIT 10000"));
+        assert!(sql.ends_with("LIMIT 5000"));
     }
 
     #[test]

@@ -87,16 +87,14 @@ pub async fn execute_query(
     database: Option<String>,
     query: String,
 ) -> Result<QueryResult, String> {
-    // Get pool clone quickly and release lock to avoid blocking cancel_query
+    // DB별 풀을 짧은 락으로 획득 — USE 오염 없이 기본 스키마가 결정된다
     let pool = {
-        let manager = manager.lock().await;
-        manager.get_pool(&connection_id).cloned()
+        let mut manager = manager.lock().await;
+        manager.get_pool_for_db(&connection_id, database.as_deref())?
     };
 
-    let pool = pool.ok_or("Connection not found")?;
-
     // Execute query on the cloned pool without holding the manager lock
-    crate::db::execute_query_on_pool(&pool, database.as_deref(), &query, Some(&connection_id)).await
+    crate::db::execute_query_on_pool(&pool, &query, Some(&connection_id)).await
 }
 
 #[tauri::command]
@@ -104,16 +102,13 @@ pub async fn cancel_query(
     manager: State<'_, SharedConnectionManager>,
     connection_id: String,
 ) -> Result<u32, String> {
-    // Get pool clone quickly and release lock to avoid blocking during long queries
-    let pool = {
+    // 풀을 우회하는 단독 커넥션으로 KILL — 풀이 고갈된 상황에서도 동작
+    let opts = {
         let manager = manager.lock().await;
-        manager.get_pool(&connection_id).cloned()
+        manager.standalone_opts(&connection_id)?
     };
 
-    let pool = pool.ok_or("Connection not found")?;
-
-    // Execute cancel on the cloned pool without holding the manager lock
-    crate::db::cancel_query_on_pool(&pool, &connection_id).await
+    crate::db::cancel_query_with_opts(opts, &connection_id).await
 }
 
 /// manager 락을 짧게 잡고 풀 클론만 꺼내는 공용 헬퍼
@@ -1477,13 +1472,13 @@ async fn execute_auto_query(
         };
     };
 
-    // Get pool
+    // Get database-scoped pool (USE 오염 없이 기본 스키마 지정)
     let pool = {
-        let manager = conn_manager.lock().await;
-        manager.get_pool(conn_id).cloned()
+        let mut manager = conn_manager.lock().await;
+        manager.get_pool_for_db(conn_id, Some(db))
     };
 
-    let Some(pool) = pool else {
+    let Ok(pool) = pool else {
         return AutoQueryResult {
             query: optimized_query.to_string(),
             original_query: Some(original_query.to_string()),
@@ -1497,7 +1492,7 @@ async fn execute_auto_query(
     };
 
     // Execute query
-    match crate::db::execute_query_on_pool(&pool, Some(db), optimized_query, Some(conn_id)).await {
+    match crate::db::execute_query_on_pool(&pool, optimized_query, Some(conn_id)).await {
         Ok(result) => {
             let row_count = result.rows.len();
             AutoQueryResult {
