@@ -1,13 +1,16 @@
 use async_trait::async_trait;
-use futures_util::StreamExt;
 use reqwest::Client;
 use serde_json::json;
 use tokio::sync::mpsc;
 
 use crate::ai::provider::{
-    AIError, CompletionRequest, LLMProvider, ModelInfo, ProviderType, StreamChunk,
+    send_checked, AIError, CompletionRequest, LLMProvider, ModelInfo, ProviderType, StreamChunk,
 };
+use crate::ai::streaming::{pump_frames, FrameAction};
 
+const ANTHROPIC_VERSION: &str = "2023-06-01";
+
+#[derive(Clone)]
 pub struct AnthropicProvider {
     client: Client,
     api_key: Option<String>,
@@ -97,86 +100,42 @@ impl LLMProvider for AnthropicProvider {
             body["system"] = json!(system_content);
         }
 
-        let response = self
-            .client
-            .post(format!("{}/v1/messages", self.base_url))
-            .header("x-api-key", api_key)
-            .header("anthropic-version", "2023-06-01")
-            .header("Content-Type", "application/json")
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| AIError::HttpError(e.to_string()))?;
+        let url = format!("{}/v1/messages", self.base_url);
+        let response = send_checked("Anthropic", || {
+            self.client
+                .post(&url)
+                .header("x-api-key", api_key)
+                .header("anthropic-version", ANTHROPIC_VERSION)
+                .header("Content-Type", "application/json")
+                .json(&body)
+        })
+        .await?;
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-
-            return Err(AIError::ProviderError(format!(
-                "Anthropic API error {}: {}",
-                status, error_text
-            )));
-        }
-
-        let mut stream = response.bytes_stream();
-        let mut buffer = String::new();
-
-        while let Some(chunk_result) = stream.next().await {
-            let chunk = chunk_result.map_err(|e| AIError::StreamError(e.to_string()))?;
-            let text = String::from_utf8_lossy(&chunk);
-            buffer.push_str(&text);
-
-            // Process complete SSE events
-            while let Some(pos) = buffer.find("\n\n") {
-                let event_block = buffer[..pos].to_string();
-                buffer = buffer[pos + 2..].to_string();
-
-                let mut event_type = String::new();
-                let mut data = String::new();
-
-                for line in event_block.lines() {
-                    if line.starts_with("event: ") {
-                        event_type = line[7..].to_string();
-                    } else if line.starts_with("data: ") {
-                        data = line[6..].to_string();
-                    }
-                }
-
-                if event_type == "content_block_delta" {
-                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&data) {
-                        if let Some(text) = json["delta"]["text"].as_str() {
-                            let _ = sender
-                                .send(StreamChunk {
-                                    content: text.to_string(),
-                                    done: false,
-                                })
-                                .await;
-                        }
-                    }
-                } else if event_type == "message_stop" {
-                    let _ = sender
-                        .send(StreamChunk {
-                            content: String::new(),
-                            done: true,
-                        })
-                        .await;
-                    return Ok(());
+        pump_frames(response, b"\n\n", &sender, |frame| {
+            let mut event_type = "";
+            let mut data = "";
+            for line in frame.lines() {
+                if let Some(rest) = line.strip_prefix("event: ") {
+                    event_type = rest;
+                } else if let Some(rest) = line.strip_prefix("data: ") {
+                    data = rest;
                 }
             }
-        }
 
-        // Send final done message
-        let _ = sender
-            .send(StreamChunk {
-                content: String::new(),
-                done: true,
-            })
-            .await;
-
-        Ok(())
+            match event_type {
+                "content_block_delta" => {
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
+                        if let Some(text) = json["delta"]["text"].as_str() {
+                            return FrameAction::Content(text.to_string());
+                        }
+                    }
+                    FrameAction::Skip
+                }
+                "message_stop" => FrameAction::Done,
+                _ => FrameAction::Skip,
+            }
+        })
+        .await
     }
 
     fn set_api_key(&mut self, key: String) {
@@ -188,9 +147,22 @@ impl LLMProvider for AnthropicProvider {
     }
 
     async fn test_connection(&self) -> Result<bool, AIError> {
-        if self.api_key.is_none() {
-            return Err(AIError::ApiKeyNotFound("anthropic".to_string()));
-        }
-        Ok(true)
+        // 실제 API 호출로 키 유효성을 검증한다 (기존에는 키 존재만 확인해
+        // 잘못된 키도 성공으로 표시됐다)
+        let api_key = self
+            .api_key
+            .as_ref()
+            .ok_or_else(|| AIError::ApiKeyNotFound("anthropic".to_string()))?;
+
+        let response = self
+            .client
+            .get(format!("{}/v1/models", self.base_url))
+            .header("x-api-key", api_key)
+            .header("anthropic-version", ANTHROPIC_VERSION)
+            .send()
+            .await
+            .map_err(|e| AIError::HttpError(e.to_string()))?;
+
+        Ok(response.status().is_success())
     }
 }

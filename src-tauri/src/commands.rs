@@ -558,6 +558,11 @@ pub struct SendMessageRequest {
     /// 신뢰 토글: true면 안전성 검사를 통과한 읽기 쿼리를 승인 없이 실행
     #[serde(default)]
     pub auto_approve: bool,
+    /// 프론트 생성 요청 ID — 탭별 스트림 라우팅과 취소에 사용.
+    /// (send_ai_message는 스트림 완료까지 반환하지 않으므로 백엔드 생성
+    /// ID로는 프론트가 진행 중 스트림을 식별할 수 없다)
+    #[serde(default)]
+    pub request_id: Option<String>,
 }
 
 /// 요약 생성 응답 파싱용 구조체
@@ -617,8 +622,8 @@ async fn generate_and_save_summary(
 
     // 5. Call AI for summary (using oneshot)
     let summary_text = {
-        let manager = ai_manager.lock().await;
-        match manager.complete_oneshot(summary_messages).await {
+        let snapshot = { ai_manager.lock().await.snapshot() };
+        match snapshot.complete_oneshot(summary_messages).await {
             Ok(text) => text,
             Err(e) => {
                 log::error!("Failed to generate summary: {}", e);
@@ -683,8 +688,17 @@ pub async fn send_ai_message(
     rag_manager: State<'_, SharedRAGManager>,
     request: SendMessageRequest,
 ) -> Result<String, String> {
-    let request_id = uuid::Uuid::new_v4().to_string();
+    // 프론트가 생성한 request_id를 우선 사용 (탭 라우팅·취소 식별자)
+    let request_id = request
+        .request_id
+        .clone()
+        .filter(|id| !id.is_empty())
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let request_id_clone = request_id.clone();
+
+    // 취소 토큰 등록 — 함수 종료 시 자동 해제
+    let stream_guard = AiStreamGuard::register(&request_id);
+    let cancel_token = stream_guard.token.clone();
 
     // Load or create conversation
     let mut conversation = if let Some(ref conv_id) = request.conversation_id {
@@ -744,6 +758,7 @@ pub async fn send_ai_message(
             &conversation,
             &schema_result.schema,
             &request_id,
+            &cancel_token,
         )
         .await;
     }
@@ -832,12 +847,16 @@ pub async fn send_ai_message(
     });
 
     // Model routing: select model based on query complexity
-    let manager = ai_manager.lock().await;
-    let complexity = router::classify_complexity(&request.message);
+    // 스냅샷을 뜨고 락을 즉시 반납 — 스트리밍 내내 락을 잡으면
+    // 다른 AI 커맨드가 전부 블로킹된다
+    let (snapshot, current_provider) = {
+        let manager = ai_manager.lock().await;
+        (manager.snapshot(), *manager.current_provider())
+    };
 
-    // Get available models for the current provider
-    let available_models: Vec<String> = manager
-        .get_provider()
+    let complexity = router::classify_complexity(&request.message);
+    let available_models: Vec<String> = snapshot
+        .provider
         .available_models()
         .iter()
         .map(|m| m.id.clone())
@@ -845,22 +864,34 @@ pub async fn send_ai_message(
 
     let model_selection = router::select_model(
         complexity,
-        manager.current_provider(),
-        manager.current_model(),
+        &current_provider,
+        &snapshot.model,
         &available_models,
     );
 
-    // Use the selected model for completion
-    let result = if model_selection.is_light_model {
-        log::info!(
-            "Using light model '{}' for simple query",
-            model_selection.model
-        );
-        manager
-            .complete_stream_with_model(&model_selection.model, messages, sender)
-            .await
-    } else {
-        manager.complete_stream(messages, sender).await
+    // Use the selected model for completion.
+    // 취소 시 future가 drop되어 HTTP 스트림이 중단되고, sender drop으로
+    // stream_to_frontend가 종료를 프론트에 알린다.
+    let completion = async {
+        if model_selection.is_light_model {
+            log::info!(
+                "Using light model '{}' for simple query",
+                model_selection.model
+            );
+            snapshot
+                .complete_stream_with_model(&model_selection.model, messages, sender)
+                .await
+        } else {
+            snapshot.complete_stream(messages, sender).await
+        }
+    };
+
+    let result = tokio::select! {
+        r = completion => r,
+        _ = cancel_token.cancelled() => {
+            log::info!("AI request {} cancelled by user", request_id);
+            Ok(())
+        }
     };
 
     if let Err(e) = result {
@@ -885,6 +916,57 @@ struct AutoQueryEvent {
 /// AUTO 모드 승인 대기 채널 레지스트리 (approval_id → responder)
 static AUTO_APPROVALS: Lazy<StdMutex<HashMap<String, oneshot::Sender<bool>>>> =
     Lazy::new(|| StdMutex::new(HashMap::new()));
+
+/// 진행 중 AI 스트림 취소 토큰 레지스트리 (request_id → token)
+static ACTIVE_AI_STREAMS: Lazy<StdMutex<HashMap<String, tokio_util::sync::CancellationToken>>> =
+    Lazy::new(|| StdMutex::new(HashMap::new()));
+
+/// 스트림 등록/해제 RAII 가드
+struct AiStreamGuard {
+    request_id: String,
+    token: tokio_util::sync::CancellationToken,
+}
+
+impl AiStreamGuard {
+    fn register(request_id: &str) -> Self {
+        let token = tokio_util::sync::CancellationToken::new();
+        ACTIVE_AI_STREAMS
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(request_id.to_string(), token.clone());
+        Self {
+            request_id: request_id.to_string(),
+            token,
+        }
+    }
+}
+
+impl Drop for AiStreamGuard {
+    fn drop(&mut self) {
+        ACTIVE_AI_STREAMS
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(&self.request_id);
+    }
+}
+
+/// 진행 중인 AI 요청을 백엔드에서 실제로 중단한다.
+/// (기존 프론트 취소는 UI 상태만 정리하고 HTTP 스트림은 계속 소비했다)
+#[tauri::command]
+pub fn cancel_ai_request(request_id: String) -> Result<bool, String> {
+    let token = ACTIVE_AI_STREAMS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .remove(&request_id);
+
+    match token {
+        Some(t) => {
+            t.cancel();
+            Ok(true)
+        }
+        None => Ok(false),
+    }
+}
 
 /// 사용자 승인 요청에 대한 응답을 처리하는 커맨드 (승인 다이얼로그에서 호출)
 #[tauri::command]
@@ -960,6 +1042,7 @@ async fn wait_for_auto_query_approval(
 }
 
 /// Handle AUTO mode message - AI can execute SELECT queries
+#[allow(clippy::too_many_arguments)]
 async fn handle_auto_mode_message(
     app: &AppHandle,
     ai_manager: &State<'_, SharedAIManager>,
@@ -968,6 +1051,7 @@ async fn handle_auto_mode_message(
     conversation: &Conversation,
     schema_context: &str,
     request_id: &str,
+    cancel_token: &tokio_util::sync::CancellationToken,
 ) -> Result<String, String> {
     use crate::ai::auto_mode::{
         check_query_safety, extract_auto_query, format_result_for_ai, optimize_query,
@@ -1037,8 +1121,26 @@ async fn handle_auto_mode_message(
         // Get AI response (non-streaming for AUTO mode parsing)
         // Use higher token limit (2048) for AUTO mode to allow full responses with <auto_query> tags
         let ai_response = {
-            let manager = ai_manager.lock().await;
-            match manager.complete_oneshot_with_options(messages.clone(), 2048, None).await {
+            let snapshot = { ai_manager.lock().await.snapshot() };
+            let completion = snapshot.complete_oneshot_with_options(messages.clone(), 2048, None);
+            let result = tokio::select! {
+                r = completion => r,
+                _ = cancel_token.cancelled() => {
+                    log::info!("AUTO mode request {} cancelled by user", request_id);
+                    // 프론트가 스트리밍 상태에서 빠져나오도록 종료 알림
+                    let _ = app.emit(
+                        "ai-stream",
+                        streaming::AIStreamEvent {
+                            request_id: request_id.to_string(),
+                            content: String::new(),
+                            done: true,
+                            error: None,
+                        },
+                    );
+                    return Ok(conversation_id);
+                }
+            };
+            match result {
                 Ok(response) => response,
                 Err(e) => {
                     streaming::emit_error(app, request_id, &e.to_string());
@@ -1285,8 +1387,8 @@ async fn handle_auto_mode_message(
 
         // Get summary from AI (use higher token limit for detailed responses)
         let summary_response = {
-            let manager = ai_manager.lock().await;
-            match manager.complete_oneshot_with_options(messages.clone(), 4096, None).await {
+            let snapshot = { ai_manager.lock().await.snapshot() };
+            match snapshot.complete_oneshot_with_options(messages.clone(), 4096, None).await {
                 Ok(response) => {
                     // Remove any auto_query tags from summary (AI shouldn't request more queries)
                     response
@@ -1711,8 +1813,8 @@ async fn select_relevant_tables(
 ) -> Vec<String> {
     let messages = crate::ai::prompt::build_table_selection_messages(message, available_tables);
 
-    let manager = ai_manager.lock().await;
-    match manager.complete_oneshot(messages).await {
+    let snapshot = { ai_manager.lock().await.snapshot() };
+    match snapshot.complete_oneshot(messages).await {
         Ok(response) => parse_table_selection(&response, available_tables),
         Err(_) => {
             // Fallback: use first 5 tables

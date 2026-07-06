@@ -1,13 +1,14 @@
 use async_trait::async_trait;
-use futures_util::StreamExt;
 use reqwest::Client;
 use serde_json::json;
 use tokio::sync::mpsc;
 
 use crate::ai::provider::{
-    AIError, CompletionRequest, LLMProvider, ModelInfo, ProviderType, StreamChunk,
+    send_checked, AIError, CompletionRequest, LLMProvider, ModelInfo, ProviderType, StreamChunk,
 };
+use crate::ai::streaming::{pump_frames, FrameAction};
 
+#[derive(Clone)]
 pub struct OllamaProvider {
     client: Client,
     base_url: String,
@@ -89,80 +90,39 @@ impl LLMProvider for OllamaProvider {
             }
         });
 
-        let response = self
-            .client
-            .post(format!("{}/api/chat", self.base_url))
-            .header("Content-Type", "application/json")
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| AIError::HttpError(format!("Ollama connection failed: {}", e)))?;
+        let url = format!("{}/api/chat", self.base_url);
+        let response = send_checked("Ollama", || {
+            self.client
+                .post(&url)
+                .header("Content-Type", "application/json")
+                .json(&body)
+        })
+        .await?;
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(AIError::ProviderError(format!(
-                "Ollama API error {}: {}",
-                status, error_text
-            )));
-        }
-
-        let mut stream = response.bytes_stream();
-        let mut buffer = String::new();
-
-        while let Some(chunk_result) = stream.next().await {
-            let chunk = chunk_result.map_err(|e| AIError::StreamError(e.to_string()))?;
-            let text = String::from_utf8_lossy(&chunk);
-            buffer.push_str(&text);
-
-            // Ollama uses NDJSON (newline-delimited JSON)
-            while let Some(pos) = buffer.find('\n') {
-                let line = buffer[..pos].to_string();
-                buffer = buffer[pos + 1..].to_string();
-
-                if line.trim().is_empty() {
-                    continue;
-                }
-
-                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&line) {
-                    let done = json["done"].as_bool().unwrap_or(false);
-
-                    if let Some(message) = json["message"].as_object() {
-                        if let Some(content) = message["content"].as_str() {
-                            let _ = sender
-                                .send(StreamChunk {
-                                    content: content.to_string(),
-                                    done: false,
-                                })
-                                .await;
-                        }
-                    }
-
-                    if done {
-                        let _ = sender
-                            .send(StreamChunk {
-                                content: String::new(),
-                                done: true,
-                            })
-                            .await;
-                        return Ok(());
-                    }
-                }
+        // Ollama uses NDJSON (newline-delimited JSON)
+        pump_frames(response, b"\n", &sender, |frame| {
+            let line = frame.trim();
+            if line.is_empty() {
+                return FrameAction::Skip;
             }
-        }
 
-        // Send final done message
-        let _ = sender
-            .send(StreamChunk {
-                content: String::new(),
-                done: true,
-            })
-            .await;
+            let Ok(json) = serde_json::from_str::<serde_json::Value>(line) else {
+                return FrameAction::Skip;
+            };
 
-        Ok(())
+            let done = json["done"].as_bool().unwrap_or(false);
+            let content = json["message"]["content"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string();
+
+            if done {
+                FrameAction::ContentAndDone(content)
+            } else {
+                FrameAction::Content(content)
+            }
+        })
+        .await
     }
 
     fn set_api_key(&mut self, _key: String) {

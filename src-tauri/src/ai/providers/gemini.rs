@@ -1,13 +1,14 @@
 use async_trait::async_trait;
-use futures_util::StreamExt;
 use reqwest::Client;
 use serde_json::json;
 use tokio::sync::mpsc;
 
 use crate::ai::provider::{
-    AIError, CompletionRequest, LLMProvider, ModelInfo, ProviderType, StreamChunk,
+    send_checked, AIError, CompletionRequest, LLMProvider, ModelInfo, ProviderType, StreamChunk,
 };
+use crate::ai::streaming::{pump_frames, FrameAction};
 
+#[derive(Clone)]
 pub struct GeminiProvider {
     client: Client,
     api_key: Option<String>,
@@ -112,71 +113,31 @@ impl LLMProvider for GeminiProvider {
             self.base_url, request.model
         );
 
-        let response = self
-            .client
-            .post(&url)
-            .header("Content-Type", "application/json")
-            .header("Authorization", format!("Bearer {}", api_key))
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| AIError::HttpError(e.to_string()))?;
+        let response = send_checked("Gemini", || {
+            self.client
+                .post(&url)
+                .header("Content-Type", "application/json")
+                .header("Authorization", format!("Bearer {}", api_key))
+                .json(&body)
+        })
+        .await?;
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(AIError::ProviderError(format!(
-                "Gemini API error {}: {}",
-                status, error_text
-            )));
-        }
-
-        let mut stream = response.bytes_stream();
-        let mut buffer = String::new();
-
-        while let Some(chunk_result) = stream.next().await {
-            let chunk = chunk_result.map_err(|e| AIError::StreamError(e.to_string()))?;
-            let text = String::from_utf8_lossy(&chunk);
-            buffer.push_str(&text);
-
-            // Process complete SSE lines
-            while let Some(pos) = buffer.find("\n\n") {
-                let line = buffer[..pos].to_string();
-                buffer = buffer[pos + 2..].to_string();
-
-                for single_line in line.lines() {
-                    if single_line.starts_with("data: ") {
-                        let data = &single_line[6..];
-
-                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
-                            if let Some(text) =
-                                json["candidates"][0]["content"]["parts"][0]["text"].as_str()
-                            {
-                                let _ = sender
-                                    .send(StreamChunk {
-                                        content: text.to_string(),
-                                        done: false,
-                                    })
-                                    .await;
-                            }
+        pump_frames(response, b"\n\n", &sender, |frame| {
+            let mut content = String::new();
+            for line in frame.lines() {
+                if let Some(data) = line.strip_prefix("data: ") {
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
+                        if let Some(text) =
+                            json["candidates"][0]["content"]["parts"][0]["text"].as_str()
+                        {
+                            content.push_str(text);
                         }
                     }
                 }
             }
-        }
-
-        // Send final done message
-        let _ = sender
-            .send(StreamChunk {
-                content: String::new(),
-                done: true,
-            })
-            .await;
-
-        Ok(())
+            FrameAction::Content(content)
+        })
+        .await
     }
 
     fn set_api_key(&mut self, key: String) {

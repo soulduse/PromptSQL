@@ -15,6 +15,120 @@ use tokio::sync::Mutex;
 use provider::{CompletionRequest, LLMProvider, ProviderType, StreamChunk};
 use providers::{AnthropicProvider, GeminiProvider, OllamaProvider, OpenAIProvider};
 
+/// 프로바이더의 소유권 있는 스냅샷 — AIManager 락을 잡지 않고
+/// 스트리밍 요청을 수행하기 위해 사용한다.
+///
+/// 락을 잡은 채 complete_stream을 실행하면 스트림이 끝날 때까지
+/// 모든 AI 커맨드(모델 목록, 설정 변경 등)가 블로킹된다.
+#[derive(Clone)]
+pub enum AnyProvider {
+    OpenAI(OpenAIProvider),
+    Anthropic(AnthropicProvider),
+    Gemini(GeminiProvider),
+    Ollama(OllamaProvider),
+}
+
+impl AnyProvider {
+    fn inner(&self) -> &dyn LLMProvider {
+        match self {
+            AnyProvider::OpenAI(p) => p,
+            AnyProvider::Anthropic(p) => p,
+            AnyProvider::Gemini(p) => p,
+            AnyProvider::Ollama(p) => p,
+        }
+    }
+
+    pub fn available_models(&self) -> Vec<provider::ModelInfo> {
+        self.inner().available_models()
+    }
+}
+
+/// 락 밖에서 사용하는 (프로바이더, 모델) 스냅샷.
+pub struct ProviderSnapshot {
+    pub provider: AnyProvider,
+    pub model: String,
+}
+
+impl ProviderSnapshot {
+    /// Send a completion request with streaming
+    pub async fn complete_stream(
+        &self,
+        messages: Vec<provider::ChatMessage>,
+        sender: tokio::sync::mpsc::Sender<StreamChunk>,
+    ) -> Result<(), provider::AIError> {
+        let model = self.model.clone();
+        self.complete_stream_with_model(&model, messages, sender)
+            .await
+    }
+
+    /// Send a completion request with a specific model (for model routing)
+    pub async fn complete_stream_with_model(
+        &self,
+        model: &str,
+        messages: Vec<provider::ChatMessage>,
+        sender: tokio::sync::mpsc::Sender<StreamChunk>,
+    ) -> Result<(), provider::AIError> {
+        let request = CompletionRequest {
+            messages,
+            model: model.to_string(),
+            max_tokens: Some(4096),
+            temperature: Some(0.7),
+            stream: true,
+        };
+
+        self.provider.inner().complete_stream(request, sender).await
+    }
+
+    /// Send a one-shot completion request (non-streaming, collects full response)
+    /// Used for table selection and other quick tasks
+    pub async fn complete_oneshot(
+        &self,
+        messages: Vec<provider::ChatMessage>,
+    ) -> Result<String, provider::AIError> {
+        self.complete_oneshot_with_options(messages, 500, None).await
+    }
+
+    /// Send a one-shot completion request with configurable options
+    /// Used for AUTO mode and other tasks requiring longer responses
+    pub async fn complete_oneshot_with_options(
+        &self,
+        messages: Vec<provider::ChatMessage>,
+        max_tokens: u32,
+        temperature: Option<f32>,
+    ) -> Result<String, provider::AIError> {
+        let request = CompletionRequest {
+            messages,
+            model: self.model.clone(),
+            max_tokens: Some(max_tokens),
+            temperature,
+            stream: true, // Still use streaming internally
+        };
+
+        // Create a channel to collect the streamed response
+        let (sender, mut receiver) = tokio::sync::mpsc::channel::<StreamChunk>(100);
+
+        // Spawn task to collect chunks
+        let collect_handle = tokio::spawn(async move {
+            let mut full_response = String::new();
+            while let Some(chunk) = receiver.recv().await {
+                full_response.push_str(&chunk.content);
+                if chunk.done {
+                    break;
+                }
+            }
+            full_response
+        });
+
+        // Run the streaming request
+        self.provider.inner().complete_stream(request, sender).await?;
+
+        // Wait for collection to complete
+        collect_handle
+            .await
+            .map_err(|e| provider::AIError::StreamError(e.to_string()))
+    }
+}
+
 /// AI Manager - manages multiple LLM providers
 pub struct AIManager {
     pub openai: OpenAIProvider,
@@ -78,6 +192,21 @@ impl AIManager {
         }
     }
 
+    /// 현재 (프로바이더, 모델)의 소유 스냅샷 — 락을 즉시 반납하고
+    /// 스트리밍은 스냅샷으로 수행한다.
+    pub fn snapshot(&self) -> ProviderSnapshot {
+        let provider = match self.current_provider {
+            ProviderType::OpenAI => AnyProvider::OpenAI(self.openai.clone()),
+            ProviderType::Anthropic => AnyProvider::Anthropic(self.anthropic.clone()),
+            ProviderType::Gemini => AnyProvider::Gemini(self.gemini.clone()),
+            ProviderType::Ollama => AnyProvider::Ollama(self.ollama.clone()),
+        };
+        ProviderSnapshot {
+            provider,
+            model: self.current_model.clone(),
+        }
+    }
+
     /// Get mutable provider by type
     pub fn get_provider_mut(&mut self, provider_type: &ProviderType) -> &mut dyn LLMProvider {
         match provider_type {
@@ -88,89 +217,6 @@ impl AIManager {
         }
     }
 
-    /// Send a completion request with streaming
-    pub async fn complete_stream(
-        &self,
-        messages: Vec<provider::ChatMessage>,
-        sender: tokio::sync::mpsc::Sender<StreamChunk>,
-    ) -> Result<(), provider::AIError> {
-        let request = CompletionRequest {
-            messages,
-            model: self.current_model.clone(),
-            max_tokens: Some(4096),
-            temperature: Some(0.7),
-            stream: true,
-        };
-
-        self.get_provider().complete_stream(request, sender).await
-    }
-
-    /// Send a completion request with a specific model (for model routing)
-    pub async fn complete_stream_with_model(
-        &self,
-        model: &str,
-        messages: Vec<provider::ChatMessage>,
-        sender: tokio::sync::mpsc::Sender<StreamChunk>,
-    ) -> Result<(), provider::AIError> {
-        let request = CompletionRequest {
-            messages,
-            model: model.to_string(),
-            max_tokens: Some(4096),
-            temperature: Some(0.7),
-            stream: true,
-        };
-
-        self.get_provider().complete_stream(request, sender).await
-    }
-
-    /// Send a one-shot completion request (non-streaming, collects full response)
-    /// Used for table selection and other quick tasks
-    pub async fn complete_oneshot(
-        &self,
-        messages: Vec<provider::ChatMessage>,
-    ) -> Result<String, provider::AIError> {
-        self.complete_oneshot_with_options(messages, 500, None).await
-    }
-
-    /// Send a one-shot completion request with configurable options
-    /// Used for AUTO mode and other tasks requiring longer responses
-    pub async fn complete_oneshot_with_options(
-        &self,
-        messages: Vec<provider::ChatMessage>,
-        max_tokens: u32,
-        temperature: Option<f32>,
-    ) -> Result<String, provider::AIError> {
-        let request = CompletionRequest {
-            messages,
-            model: self.current_model.clone(),
-            max_tokens: Some(max_tokens),
-            temperature,
-            stream: true, // Still use streaming internally
-        };
-
-        // Create a channel to collect the streamed response
-        let (sender, mut receiver) = tokio::sync::mpsc::channel::<StreamChunk>(100);
-
-        // Spawn task to collect chunks
-        let collect_handle = tokio::spawn(async move {
-            let mut full_response = String::new();
-            while let Some(chunk) = receiver.recv().await {
-                full_response.push_str(&chunk.content);
-                if chunk.done {
-                    break;
-                }
-            }
-            full_response
-        });
-
-        // Run the streaming request
-        self.get_provider().complete_stream(request, sender).await?;
-
-        // Wait for collection to complete
-        collect_handle
-            .await
-            .map_err(|e| provider::AIError::StreamError(e.to_string()))
-    }
 }
 
 pub type SharedAIManager = Arc<Mutex<AIManager>>;

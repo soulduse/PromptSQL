@@ -1,13 +1,14 @@
 use async_trait::async_trait;
-use futures_util::StreamExt;
 use reqwest::Client;
 use serde_json::json;
 use tokio::sync::mpsc;
 
 use crate::ai::provider::{
-    AIError, CompletionRequest, LLMProvider, ModelInfo, ProviderType, StreamChunk,
+    send_checked, AIError, CompletionRequest, LLMProvider, ModelInfo, ProviderType, StreamChunk,
 };
+use crate::ai::streaming::{pump_frames, FrameAction};
 
+#[derive(Clone)]
 pub struct OpenAIProvider {
     client: Client,
     api_key: Option<String>,
@@ -84,84 +85,40 @@ impl LLMProvider for OpenAIProvider {
             })
             .collect();
 
-        let response = self
-            .client
-            .post(format!("{}/chat/completions", self.base_url))
-            .header("Authorization", format!("Bearer {}", api_key))
-            .header("Content-Type", "application/json")
-            .json(&json!({
-                "model": request.model,
-                "messages": messages,
-                "max_completion_tokens": request.max_tokens.unwrap_or(4096),
-                "stream": true
-            }))
-            .send()
-            .await
-            .map_err(|e| AIError::HttpError(e.to_string()))?;
+        let body = json!({
+            "model": request.model,
+            "messages": messages,
+            "max_completion_tokens": request.max_tokens.unwrap_or(4096),
+            "stream": true
+        });
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(AIError::ProviderError(format!(
-                "OpenAI API error {}: {}",
-                status, error_text
-            )));
-        }
+        let url = format!("{}/chat/completions", self.base_url);
+        let response = send_checked("OpenAI", || {
+            self.client
+                .post(&url)
+                .header("Authorization", format!("Bearer {}", api_key))
+                .header("Content-Type", "application/json")
+                .json(&body)
+        })
+        .await?;
 
-        let mut stream = response.bytes_stream();
-        let mut buffer = String::new();
-
-        while let Some(chunk_result) = stream.next().await {
-            let chunk = chunk_result.map_err(|e| AIError::StreamError(e.to_string()))?;
-            let text = String::from_utf8_lossy(&chunk);
-            buffer.push_str(&text);
-
-            // Process complete SSE lines
-            while let Some(pos) = buffer.find("\n\n") {
-                let line = buffer[..pos].to_string();
-                buffer = buffer[pos + 2..].to_string();
-
-                for single_line in line.lines() {
-                    if single_line.starts_with("data: ") {
-                        let data = &single_line[6..];
-
-                        if data == "[DONE]" {
-                            let _ = sender
-                                .send(StreamChunk {
-                                    content: String::new(),
-                                    done: true,
-                                })
-                                .await;
-                            return Ok(());
-                        }
-
-                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
-                            if let Some(content) = json["choices"][0]["delta"]["content"].as_str() {
-                                let _ = sender
-                                    .send(StreamChunk {
-                                        content: content.to_string(),
-                                        done: false,
-                                    })
-                                    .await;
-                            }
+        pump_frames(response, b"\n\n", &sender, |frame| {
+            let mut content = String::new();
+            for line in frame.lines() {
+                if let Some(data) = line.strip_prefix("data: ") {
+                    if data == "[DONE]" {
+                        return FrameAction::ContentAndDone(content);
+                    }
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
+                        if let Some(text) = json["choices"][0]["delta"]["content"].as_str() {
+                            content.push_str(text);
                         }
                     }
                 }
             }
-        }
-
-        // Send final done message
-        let _ = sender
-            .send(StreamChunk {
-                content: String::new(),
-                done: true,
-            })
-            .await;
-
-        Ok(())
+            FrameAction::Content(content)
+        })
+        .await
     }
 
     fn set_api_key(&mut self, key: String) {
