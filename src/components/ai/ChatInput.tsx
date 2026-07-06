@@ -70,7 +70,7 @@ export default function ChatInput({
   tables,
 }: ChatInputProps) {
   const { t } = useTranslation();
-  const { sendMessage, isStreaming, setInputFocusCallback, isAutoMode, toggleAutoMode, closeCurrentTab, cancelRequest } = useAIStore();
+  const { sendMessage, isStreaming, setInputFocusCallback, isAutoMode, toggleAutoMode, autoApproveTrusted, toggleAutoApproveTrusted, closeCurrentTab, cancelRequest } = useAIStore();
 
   const [inputValue, setInputValue] = useState("");
   const [showMention, setShowMention] = useState(false);
@@ -334,6 +334,21 @@ export default function ChatInput({
               title={t("ai.clickToDisable", "Click to disable AUTO mode")}
             >
               AUTO
+            </button>
+            {/* 신뢰 토글: 검증 통과한 읽기 쿼리를 승인 없이 자동 실행 */}
+            <button
+              onClick={toggleAutoApproveTrusted}
+              className={`px-2 py-1 rounded text-xs font-medium transition-all border ${
+                autoApproveTrusted
+                  ? "bg-emerald-600/20 border-emerald-500/50 text-emerald-400 hover:bg-emerald-600/30"
+                  : "bg-gray-700/40 border-gray-600 text-gray-400 hover:text-gray-300 hover:border-gray-500"
+              }`}
+              title={t(
+                "ai.trustedTooltip",
+                "Automatically run read-only queries that pass safety checks without asking"
+              )}
+            >
+              {t("ai.trustedAutoRun", "Auto-run")}
             </button>
           </div>
         )}

@@ -62,6 +62,7 @@ pub fn run() {
             commands::update_history_group,
             commands::delete_history_group,
             // AI commands
+            commands::respond_auto_query,
             commands::save_ai_api_key,
             commands::delete_ai_api_key,
             commands::has_ai_api_key,

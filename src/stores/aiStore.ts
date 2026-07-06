@@ -10,6 +10,8 @@ const LAST_SESSION_BY_CONNECTION_PREFIX = "promptsql-chat-last-session-conn-";
 const PROVIDER_KEY = "promptsql-chat-provider";
 const MODEL_KEY = "promptsql-chat-model";
 const AUTO_MODE_KEY = "promptsql-chat-auto-mode";
+// 신뢰 토글: 안전성 검사를 통과한 읽기 쿼리를 승인 없이 자동 실행
+const AUTO_APPROVE_KEY = "promptsql-chat-auto-approve-trusted";
 const DEFAULT_PANEL_WIDTH = 400;
 const MIN_PANEL_WIDTH = 300;
 // Dynamic max width: 70% of window width
@@ -72,7 +74,22 @@ interface AIStreamEvent {
 
 interface AIStatusEvent {
   request_id: string;
-  status: "analyzing_tables" | "generating" | "reusing_context" | "searching_via_rag" | "auto_mode_starting" | "auto_mode_continuing";
+  status: "analyzing_tables" | "generating" | "reusing_context" | "searching_via_rag" | "auto_mode_starting" | "auto_mode_continuing" | "waiting_approval";
+}
+
+// AUTO 모드 쿼리 실행 승인 요청 이벤트 (백엔드가 120초 대기)
+interface AutoApprovalEvent {
+  request_id: string;
+  approval_id: string;
+  query: string;
+  reason: string;
+}
+
+export interface PendingAutoApproval {
+  approvalId: string;
+  requestId: string;
+  query: string;
+  reason: string;
 }
 
 // AUTO mode query execution event
@@ -162,10 +179,14 @@ interface AIState {
   isStreaming: boolean;
   streamingMessageId: string | null;
   currentStreamContent: string;
-  streamStatus: "analyzing_tables" | "generating" | "reusing_context" | "searching_via_rag" | "auto_mode_starting" | "auto_mode_continuing" | null;
+  streamStatus: "analyzing_tables" | "generating" | "reusing_context" | "searching_via_rag" | "auto_mode_starting" | "auto_mode_continuing" | "waiting_approval" | null;
 
   // AUTO mode state
   isAutoMode: boolean;
+  // 신뢰 토글: 검증 통과한 읽기 쿼리 자동 실행 허용
+  autoApproveTrusted: boolean;
+  // 사용자 승인 대기 중인 AUTO 쿼리
+  pendingApproval: PendingAutoApproval | null;
 
   // LLM settings
   provider: LLMProvider;
@@ -198,6 +219,7 @@ interface AIState {
   unlistenStream: UnlistenFn | null;
   unlistenStatus: UnlistenFn | null;
   unlistenConversationSaved: UnlistenFn | null;
+  unlistenAutoApproval: UnlistenFn | null;
   unlistenRagStatus: UnlistenFn | null;
   unlistenRagSuggest: UnlistenFn | null;
   unlistenRagOutdated: UnlistenFn | null;
@@ -273,6 +295,8 @@ interface AIState {
   // AUTO mode actions
   toggleAutoMode: () => void;
   setAutoMode: (enabled: boolean) => void;
+  toggleAutoApproveTrusted: () => void;
+  respondAutoQuery: (approved: boolean) => Promise<void>;
 
   // Reset
   reset: () => void;
@@ -384,6 +408,9 @@ export const useAIStore = create<AIState>((set, get) => ({
   // AUTO 모드 기본 활성화 - SELECT 쿼리만 실행되므로 안전함
   // localStorage에 값이 없으면 true (처음 사용자), "false"일 때만 비활성화
   isAutoMode: localStorage.getItem(AUTO_MODE_KEY) !== "false",
+  // 신뢰 토글 기본 비활성화 — 명시적으로 켠 사용자만 무승인 실행
+  autoApproveTrusted: localStorage.getItem(AUTO_APPROVE_KEY) === "true",
+  pendingApproval: null,
   provider: getSavedProvider(),
   model: getSavedModel(),
   availableModels: [],
@@ -400,6 +427,7 @@ export const useAIStore = create<AIState>((set, get) => ({
   unlistenStream: null,
   unlistenStatus: null,
   unlistenConversationSaved: null,
+  unlistenAutoApproval: null,
   unlistenRagStatus: null,
   unlistenRagSuggest: null,
   unlistenRagOutdated: null,
@@ -625,7 +653,7 @@ export const useAIStore = create<AIState>((set, get) => ({
 
     try {
       // Send message to backend
-      const { isAutoMode } = get();
+      const { isAutoMode, autoApproveTrusted } = get();
       const conversationId = await invoke<string>("send_ai_message", {
         request: {
           conversation_id: currentConversation?.id || null,
@@ -633,6 +661,7 @@ export const useAIStore = create<AIState>((set, get) => ({
           connection_id: connectionId ?? currentConversation?.connection_id,
           database: database ?? currentConversation?.database,
           auto_mode: isAutoMode,
+          auto_approve: autoApproveTrusted,
         },
       });
 
@@ -764,7 +793,7 @@ export const useAIStore = create<AIState>((set, get) => ({
 
     try {
       // Send message to backend (is_retry: true to avoid duplicate message)
-      const { isAutoMode } = get();
+      const { isAutoMode, autoApproveTrusted } = get();
       await invoke<string>("send_ai_message", {
         request: {
           conversation_id: currentConversation.id || null,
@@ -773,6 +802,7 @@ export const useAIStore = create<AIState>((set, get) => ({
           database: database ?? currentConversation.database,
           is_retry: true,
           auto_mode: isAutoMode,
+          auto_approve: autoApproveTrusted,
         },
       });
     } catch (error) {
@@ -871,7 +901,7 @@ export const useAIStore = create<AIState>((set, get) => ({
 
     try {
       // Send same message to backend (is_retry: true to avoid duplicate message)
-      const { isAutoMode } = get();
+      const { isAutoMode, autoApproveTrusted } = get();
       await invoke<string>("send_ai_message", {
         request: {
           conversation_id: currentConversation.id || null,
@@ -880,6 +910,7 @@ export const useAIStore = create<AIState>((set, get) => ({
           database: database ?? currentConversation.database,
           is_retry: true,
           auto_mode: isAutoMode,
+          auto_approve: autoApproveTrusted,
         },
       });
     } catch (error) {
@@ -1219,6 +1250,22 @@ export const useAIStore = create<AIState>((set, get) => ({
         });
       }
 
+      // Listen for ai-auto-approval events (AUTO 쿼리 실행 승인 요청)
+      let autoApprovalUnlisten: UnlistenFn | null = null;
+      if (!get().unlistenAutoApproval) {
+        autoApprovalUnlisten = await listen<AutoApprovalEvent>("ai-auto-approval", (event) => {
+          const { request_id, approval_id, query, reason } = event.payload;
+          set({
+            pendingApproval: {
+              approvalId: approval_id,
+              requestId: request_id,
+              query,
+              reason,
+            },
+          });
+        });
+      }
+
       // Listen for ai-conversation-saved events (when backend saves AI response)
       let conversationSavedUnlisten: UnlistenFn | null = null;
       if (!unlistenConversationSaved) {
@@ -1268,6 +1315,7 @@ export const useAIStore = create<AIState>((set, get) => ({
         unlistenStream: unlisten,
         unlistenStatus: statusUnlisten ?? get().unlistenStatus,
         unlistenConversationSaved: conversationSavedUnlisten ?? get().unlistenConversationSaved,
+        unlistenAutoApproval: autoApprovalUnlisten ?? get().unlistenAutoApproval,
       });
     } catch (error) {
       console.error("Failed to setup stream listener:", error);
@@ -1275,7 +1323,7 @@ export const useAIStore = create<AIState>((set, get) => ({
   },
 
   cleanupStreamListener: () => {
-    const { unlistenStream, unlistenStatus, unlistenConversationSaved, unlistenRagStatus, unlistenRagSuggest, unlistenRagOutdated } = get();
+    const { unlistenStream, unlistenStatus, unlistenConversationSaved, unlistenAutoApproval, unlistenRagStatus, unlistenRagSuggest, unlistenRagOutdated } = get();
     if (unlistenStream) {
       unlistenStream();
     }
@@ -1284,6 +1332,9 @@ export const useAIStore = create<AIState>((set, get) => ({
     }
     if (unlistenConversationSaved) {
       unlistenConversationSaved();
+    }
+    if (unlistenAutoApproval) {
+      unlistenAutoApproval();
     }
     if (unlistenRagStatus) {
       unlistenRagStatus();
@@ -1294,7 +1345,7 @@ export const useAIStore = create<AIState>((set, get) => ({
     if (unlistenRagOutdated) {
       unlistenRagOutdated();
     }
-    set({ unlistenStream: null, unlistenStatus: null, unlistenConversationSaved: null, unlistenRagStatus: null, unlistenRagSuggest: null, unlistenRagOutdated: null, streamStatus: null });
+    set({ unlistenStream: null, unlistenStatus: null, unlistenConversationSaved: null, unlistenAutoApproval: null, unlistenRagStatus: null, unlistenRagSuggest: null, unlistenRagOutdated: null, streamStatus: null, pendingApproval: null });
   },
 
   setupRagStatusListener: async () => {
@@ -1457,6 +1508,33 @@ export const useAIStore = create<AIState>((set, get) => ({
   setAutoMode: (enabled: boolean) => {
     localStorage.setItem(AUTO_MODE_KEY, enabled.toString());
     set({ isAutoMode: enabled });
+  },
+
+  toggleAutoApproveTrusted: () => {
+    set((state) => {
+      const newValue = !state.autoApproveTrusted;
+      localStorage.setItem(AUTO_APPROVE_KEY, newValue.toString());
+      return { autoApproveTrusted: newValue };
+    });
+  },
+
+  // 승인 다이얼로그 응답 — 백엔드 oneshot 채널로 전달
+  respondAutoQuery: async (approved: boolean) => {
+    const { pendingApproval } = get();
+    if (!pendingApproval) return;
+
+    // 먼저 다이얼로그를 닫아 중복 응답 방지
+    set({ pendingApproval: null });
+
+    try {
+      await invoke("respond_auto_query", {
+        approvalId: pendingApproval.approvalId,
+        approved,
+      });
+    } catch (error) {
+      // 백엔드 타임아웃(120초) 이후 응답한 경우 등 — 무시해도 안전
+      console.warn("Failed to respond to auto query approval:", error);
+    }
   },
 
   // Reset

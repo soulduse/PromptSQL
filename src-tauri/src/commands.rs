@@ -15,10 +15,12 @@ use crate::db::{
     UpdateColumnRequest,
 };
 use crate::storage::{self, ConnectionWithPassword};
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Mutex as StdMutex;
 use tauri::{AppHandle, Emitter, State};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TestConnectionRequest {
@@ -526,6 +528,9 @@ pub struct SendMessageRequest {
     pub is_retry: bool,
     #[serde(default)]
     pub auto_mode: bool,
+    /// 신뢰 토글: true면 안전성 검사를 통과한 읽기 쿼리를 승인 없이 실행
+    #[serde(default)]
+    pub auto_approve: bool,
 }
 
 /// 요약 생성 응답 파싱용 구조체
@@ -850,6 +855,83 @@ struct AutoQueryEvent {
     error: Option<String>,
 }
 
+/// AUTO 모드 승인 대기 채널 레지스트리 (approval_id → responder)
+static AUTO_APPROVALS: Lazy<StdMutex<HashMap<String, oneshot::Sender<bool>>>> =
+    Lazy::new(|| StdMutex::new(HashMap::new()));
+
+/// 사용자 승인 요청에 대한 응답을 처리하는 커맨드 (승인 다이얼로그에서 호출)
+#[tauri::command]
+pub fn respond_auto_query(approval_id: String, approved: bool) -> Result<(), String> {
+    let sender = AUTO_APPROVALS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .remove(&approval_id);
+
+    match sender {
+        Some(tx) => {
+            // 수신 측이 이미 타임아웃으로 떠났어도 무해
+            let _ = tx.send(approved);
+            Ok(())
+        }
+        None => Err("Approval request not found or already handled".to_string()),
+    }
+}
+
+/// 승인 대기 결과
+enum ApprovalOutcome {
+    Approved,
+    Rejected,
+    TimedOut,
+}
+
+/// AUTO 쿼리 실행 전 사용자 승인을 기다린다 (최대 120초).
+async fn wait_for_auto_query_approval(
+    app: &AppHandle,
+    request_id: &str,
+    query: &str,
+    reason: &str,
+) -> ApprovalOutcome {
+    const APPROVAL_TIMEOUT_SECS: u64 = 120;
+
+    let approval_id = uuid::Uuid::new_v4().to_string();
+    let (tx, rx) = oneshot::channel::<bool>();
+    AUTO_APPROVALS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .insert(approval_id.clone(), tx);
+
+    let _ = app.emit(
+        "ai-status",
+        serde_json::json!({
+            "request_id": request_id,
+            "status": "waiting_approval"
+        }),
+    );
+    let _ = app.emit(
+        "ai-auto-approval",
+        serde_json::json!({
+            "request_id": request_id,
+            "approval_id": approval_id,
+            "query": query,
+            "reason": reason,
+        }),
+    );
+
+    match tokio::time::timeout(std::time::Duration::from_secs(APPROVAL_TIMEOUT_SECS), rx).await {
+        Ok(Ok(true)) => ApprovalOutcome::Approved,
+        Ok(Ok(false)) => ApprovalOutcome::Rejected,
+        // sender dropped (프론트 리스너 소멸 등) → 거부로 처리
+        Ok(Err(_)) => ApprovalOutcome::Rejected,
+        Err(_) => {
+            AUTO_APPROVALS
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .remove(&approval_id);
+            ApprovalOutcome::TimedOut
+        }
+    }
+}
+
 /// Handle AUTO mode message - AI can execute SELECT queries
 async fn handle_auto_mode_message(
     app: &AppHandle,
@@ -862,12 +944,14 @@ async fn handle_auto_mode_message(
 ) -> Result<String, String> {
     use crate::ai::auto_mode::{
         check_query_safety, extract_auto_query, format_result_for_ai, optimize_query,
-        AutoQueryResult, QuerySafetyResult, AUTO_MODE_MAX_QUERIES, AUTO_MODE_ROW_LIMIT,
+        sanitize_auto_query_tags, AutoQueryResult, QuerySafetyResult, AUTO_MODE_MAX_QUERIES,
+        AUTO_MODE_ROW_LIMIT,
     };
 
-    // AUTO mode timeout: 90 seconds
+    // AUTO mode timeout: 90 seconds (사용자 승인 대기 시간은 제외)
     const AUTO_MODE_TIMEOUT_SECS: u64 = 90;
     let start_time = std::time::Instant::now();
+    let mut approval_wait = std::time::Duration::ZERO;
 
     let conversation_id = conversation.id.clone();
 
@@ -896,12 +980,14 @@ async fn handle_auto_mode_message(
     let mut final_response = String::new();
     let mut iteration = 0;
     let mut timed_out = false;
+    let mut approval_timed_out = false;
 
     // AUTO mode loop
     loop {
-        // Check timeout
-        if start_time.elapsed().as_secs() > AUTO_MODE_TIMEOUT_SECS {
-            log::warn!("AUTO mode timeout after {} seconds", start_time.elapsed().as_secs());
+        // Check timeout (승인 대기로 소요된 시간은 예산에서 제외)
+        let effective_elapsed = start_time.elapsed().saturating_sub(approval_wait);
+        if effective_elapsed.as_secs() > AUTO_MODE_TIMEOUT_SECS {
+            log::warn!("AUTO mode timeout after {} seconds", effective_elapsed.as_secs());
             timed_out = true;
             break;
         }
@@ -971,6 +1057,65 @@ async fn handle_auto_mode_message(
                     let (optimized_query, was_limited) =
                         optimize_query(&query_request.query, AUTO_MODE_ROW_LIMIT);
 
+                    // 승인 게이트 — 신뢰 토글이 꺼져 있으면 실행 전 사용자 승인 필요
+                    if !request.auto_approve {
+                        let wait_start = std::time::Instant::now();
+                        let outcome = wait_for_auto_query_approval(
+                            app,
+                            request_id,
+                            &optimized_query,
+                            &query_request.reason,
+                        )
+                        .await;
+                        approval_wait += wait_start.elapsed();
+
+                        match outcome {
+                            ApprovalOutcome::Approved => {
+                                log::info!("AUTO mode: Query approved by user (iteration {})", iteration);
+                            }
+                            ApprovalOutcome::Rejected => {
+                                log::info!("AUTO mode: Query rejected by user (iteration {})", iteration);
+                                let _ = app.emit(
+                                    "ai-auto-query",
+                                    AutoQueryEvent {
+                                        request_id: request_id.to_string(),
+                                        query: query_request.query.clone(),
+                                        reason: query_request.reason.clone(),
+                                        status: "rejected".to_string(),
+                                        result: None,
+                                        error: Some("사용자가 쿼리 실행을 거부했습니다.".to_string()),
+                                    },
+                                );
+
+                                messages.push(ChatMessage {
+                                    role: "assistant".to_string(),
+                                    content: ai_response.clone(),
+                                });
+                                messages.push(ChatMessage {
+                                    role: "user".to_string(),
+                                    content: "[시스템: 사용자가 쿼리 실행을 거부했습니다] 쿼리를 실행하지 말고, 지금까지의 정보로 답변하거나 대안을 제시해주세요. 추가 쿼리는 요청하지 마세요.".to_string(),
+                                });
+                                continue;
+                            }
+                            ApprovalOutcome::TimedOut => {
+                                log::warn!("AUTO mode: Approval wait timed out (iteration {})", iteration);
+                                let _ = app.emit(
+                                    "ai-auto-query",
+                                    AutoQueryEvent {
+                                        request_id: request_id.to_string(),
+                                        query: query_request.query.clone(),
+                                        reason: query_request.reason.clone(),
+                                        status: "rejected".to_string(),
+                                        result: None,
+                                        error: Some("승인 대기 시간이 초과되었습니다.".to_string()),
+                                    },
+                                );
+                                approval_timed_out = true;
+                                break;
+                            }
+                        }
+                    }
+
                     // Execute query
                     log::debug!("AUTO mode: Executing query (iteration {})", iteration);
                     let query_result = execute_auto_query(
@@ -1007,8 +1152,9 @@ async fn handle_auto_mode_message(
                         },
                     );
 
-                    // Format result for AI context
-                    let result_context = format_result_for_ai(&query_result);
+                    // Format result for AI context — DB 데이터에 섞인
+                    // <auto_query> 태그는 무해화 후 재주입
+                    let result_context = sanitize_auto_query_tags(&format_result_for_ai(&query_result));
                     executed_queries.push(query_result);
 
                     // Add result to messages and continue
@@ -1075,6 +1221,12 @@ async fn handle_auto_mode_message(
     // Handle timeout with no queries executed
     if timed_out && final_response.is_empty() && executed_queries.is_empty() {
         // Use marker for frontend translation
+        streaming::emit_error(app, request_id, "[TIMEOUT_ERROR]");
+        return Err("[TIMEOUT_ERROR]".to_string());
+    }
+
+    // 승인 대기 초과 + 실행 결과 없음 → 타임아웃으로 종료
+    if approval_timed_out && final_response.is_empty() && executed_queries.is_empty() {
         streaming::emit_error(app, request_id, "[TIMEOUT_ERROR]");
         return Err("[TIMEOUT_ERROR]".to_string());
     }
@@ -1148,7 +1300,7 @@ async fn handle_auto_mode_message(
     }
 
     // Build final response with query results embedded
-    let full_response = if timed_out {
+    let full_response = if timed_out || approval_timed_out {
         // Include timeout marker for frontend translation
         // Also include query results if any were executed
         let base_response = build_auto_mode_response(&final_response, &executed_queries);

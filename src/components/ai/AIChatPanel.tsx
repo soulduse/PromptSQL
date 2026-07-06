@@ -9,6 +9,7 @@ import { AIHistoryModal } from "./AIHistoryModal";
 import { AIChatMenu } from "./AIChatMenu";
 import { GeminiRequiredModal } from "./GeminiRequiredModal";
 import { RAGCompletedModal } from "./RAGCompletedModal";
+import { QueryConfirmDialog } from "./QueryConfirmDialog";
 import { RobotDetailedIcon, MoreHorizontalIcon, CloseIcon, WarningIcon, SparklesIcon } from "../common/Icons";
 
 interface AIChatPanelProps {
@@ -48,6 +49,8 @@ export default function AIChatPanel({ onOpenSettings, isSettingsOpen }: AIChatPa
     loadOrCreateConversationForConnection,
     showGeminiRequiredModal,
     closeGeminiRequiredModal,
+    pendingApproval,
+    respondAutoQuery,
   } = useAIStore();
 
   const [apiKeyConfigured, setApiKeyConfigured] = useState<boolean | null>(null);
@@ -248,6 +251,8 @@ export default function AIChatPanel({ onOpenSettings, isSettingsOpen }: AIChatPa
                 ? t("ai.reusingContext", "Using previous context...")
                 : streamStatus === "searching_via_rag"
                 ? t("ai.searchingViaRag", "Searching with learned schema...")
+                : streamStatus === "waiting_approval"
+                ? t("ai.waitingApproval", "Waiting for approval...")
                 : t("ai.thinking", "Thinking...")}
             </span>
           )}
@@ -456,6 +461,25 @@ export default function AIChatPanel({ onOpenSettings, isSettingsOpen }: AIChatPa
           onClose={dismissRagCompletedModal}
         />
       )}
+
+      {/* AUTO 모드 쿼리 실행 승인 다이얼로그 — 백엔드가 응답을 120초 대기 */}
+      <QueryConfirmDialog
+        isOpen={!!pendingApproval}
+        query={pendingApproval?.query ?? ""}
+        dangerLevel="warning"
+        queryType={null}
+        title={t("ai.autoApprovalTitle", "쿼리 실행 승인")}
+        description={
+          pendingApproval?.reason ||
+          t("ai.autoApprovalDesc", "AI가 다음 쿼리 실행을 요청했습니다")
+        }
+        warningMessage={t(
+          "ai.autoApprovalWarning",
+          "읽기 전용 검증을 통과한 쿼리입니다. 실행을 승인하시겠습니까?"
+        )}
+        onConfirm={() => respondAutoQuery(true)}
+        onCancel={() => respondAutoQuery(false)}
+      />
     </div>
   );
 }

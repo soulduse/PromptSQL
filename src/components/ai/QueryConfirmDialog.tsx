@@ -11,6 +11,12 @@ interface QueryConfirmDialogProps {
   queryType: string | null;
   onConfirm: () => void;
   onCancel: () => void;
+  /** 헤더 제목 커스터마이즈 (기본: 위험한 쿼리) */
+  title?: string;
+  /** 헤더 부제목 커스터마이즈 (기본: 쿼리 타입 설명) */
+  description?: string;
+  /** 경고 문구 커스터마이즈 — 지정 시 amber 톤으로 표시 (AUTO 승인 등 비파괴 확인용) */
+  warningMessage?: string;
 }
 
 export function QueryConfirmDialog({
@@ -20,6 +26,9 @@ export function QueryConfirmDialog({
   queryType,
   onConfirm,
   onCancel,
+  title,
+  description,
+  warningMessage,
 }: QueryConfirmDialogProps) {
   const { t } = useTranslation();
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
@@ -55,10 +64,18 @@ export function QueryConfirmDialog({
   const borderColor = isDanger ? "border-red-500/30" : "border-amber-500/30";
   const iconBgColor = isDanger ? "bg-red-500/20" : "bg-amber-500/20";
   const iconColor = isDanger ? "text-red-500" : "text-amber-500";
-  // Warning message always uses red for better visibility
-  const warningBgColor = isDark ? "bg-red-500/10" : "bg-red-50";
-  const warningBorderColor = isDark ? "border-red-500/30" : "border-red-200";
-  const warningTextColor = isDark ? "text-red-400" : "text-red-600";
+  // Warning message uses red for destructive confirmations; custom messages
+  // (e.g. AUTO-mode read-only approval) use amber
+  const isCustomWarning = warningMessage != null;
+  const warningBgColor = isCustomWarning
+    ? isDark ? "bg-amber-500/10" : "bg-amber-50"
+    : isDark ? "bg-red-500/10" : "bg-red-50";
+  const warningBorderColor = isCustomWarning
+    ? isDark ? "border-amber-500/30" : "border-amber-200"
+    : isDark ? "border-red-500/30" : "border-red-200";
+  const warningTextColor = isCustomWarning
+    ? isDark ? "text-amber-400" : "text-amber-600"
+    : isDark ? "text-red-400" : "text-red-600";
   const confirmBgColor = isDanger
     ? "bg-red-600 hover:bg-red-500"
     : "bg-amber-600 hover:bg-amber-500";
@@ -100,10 +117,11 @@ export function QueryConfirmDialog({
           </div>
           <div>
             <h3 className={`text-lg font-semibold ${titleColor}`}>
-              {t("ai.dangerQueryTitle", "위험한 쿼리")}
+              {title ?? t("ai.dangerQueryTitle", "위험한 쿼리")}
             </h3>
             <p className={`text-sm ${descColor}`}>
-              {queryType && t(`ai.${queryType.toLowerCase()}QueryDesc`, `${queryType} 쿼리입니다`)}
+              {description ??
+                (queryType && t(`ai.${queryType.toLowerCase()}QueryDesc`, `${queryType} 쿼리입니다`))}
             </p>
           </div>
         </div>
@@ -140,9 +158,10 @@ export function QueryConfirmDialog({
             className={`${warningBgColor} border ${warningBorderColor} rounded-lg p-3`}
           >
             <p className={`${warningTextColor} text-sm`}>
-              {isDanger
-                ? t("ai.dangerQueryWarning", "이 쿼리는 데이터를 영구적으로 삭제할 수 있습니다. 실행 전 반드시 확인하세요.")
-                : t("ai.warningQueryWarning", "이 쿼리는 데이터를 변경합니다. 실행하시겠습니까?")}
+              {warningMessage ??
+                (isDanger
+                  ? t("ai.dangerQueryWarning", "이 쿼리는 데이터를 영구적으로 삭제할 수 있습니다. 실행 전 반드시 확인하세요.")
+                  : t("ai.warningQueryWarning", "이 쿼리는 데이터를 변경합니다. 실행하시겠습니까?"))}
             </p>
           </div>
         </div>
