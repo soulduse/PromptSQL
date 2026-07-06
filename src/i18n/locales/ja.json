@@ -21,7 +21,20 @@
     "encoding": "エンコーディング",
     "autoIncrement": "Auto Increment",
     "indexes": "インデックス",
-    "columns": "列数"
+    "columns": "列数",
+    "type": "タイプ",
+    "createdAt": "作成日時",
+    "updatedAt": "更新日時",
+    "collation": "照合順序",
+    "numberOfRows": "行数",
+    "rowFormat": "行フォーマット",
+    "avgRowLength": "平均行長",
+    "maxDataSize": "最大データサイズ",
+    "freeDataSize": "空きデータサイズ",
+    "comments": "コメント",
+    "noComment": "コメントなし",
+    "createSyntax": "CREATE構文",
+    "noCreateSyntax": "CREATE TABLE構文がありません"
   },
   "tableView": {
     "structure": "構造",
@@ -46,7 +59,7 @@
     "columns": "カラム",
     "indexes": "インデックス",
     "noIndexes": "インデックスなし",
-    "nonUnique": "Non_unique",
+    "nonUnique": "Non-unique",
     "keyName": "Key_name",
     "seqInIndex": "Seq_in_index",
     "columnName": "Column_name",
@@ -82,7 +95,8 @@
     "copyRow": "行をコピー",
     "reorderingColumn": "カラムの順序を変更中...",
     "duplicateField": "フィールドを複製",
-    "deleteField": "フィールドを削除"
+    "deleteField": "フィールドを削除",
+    "unique": "Unique"
   },
   "database": {
     "select": "データベースを選択",
@@ -113,7 +127,13 @@
     "connect": "接続",
     "disconnect": "切断",
     "delete": "削除",
-    "passwordKeepHint": "変更しない場合は空欄のままにしてください"
+    "passwordKeepHint": "変更しない場合は空欄のままにしてください",
+    "new": "新規接続",
+    "edit": "接続を編集",
+    "connecting": "接続中...",
+    "confirmDeleteTitle": "接続を削除",
+    "confirmDelete": "この接続を削除してもよろしいですか？",
+    "nameRequired": "接続名を入力してください"
   },
   "query": {
     "editor": "クエリエディタ",
@@ -173,13 +193,17 @@
     "optional": "任意",
     "create": "作成",
     "saving": "保存中...",
-    "dismiss": "後で"
+    "dismiss": "後で",
+    "edit": "編集"
   },
   "welcome": {
     "title": "PromptSQLへようこそ",
     "subtitle": "MySQLデータベース管理ツール",
     "getStarted": "新規接続を追加して始めましょう",
-    "newConnection": "新規接続"
+    "newConnection": "新規接続",
+    "savedConnections": "保存済みの接続",
+    "noConnections": "保存された接続がありません",
+    "description": "MySQLデータベースに接続して始めましょう。\nAIがクエリの作成とデータの探索をサポートします。"
   },
   "newTab": {
     "title": "データベースに接続",
@@ -393,7 +417,10 @@
       "description": "データベーススキーマの学習のため、テーブル・カラム構造（名前、型、コメント）がGoogle Gemini File Searchにアップロードされ保存されます。",
       "note": "テーブルデータ（行）はアップロードされません。同意しなくてもAIは利用でき、テーブル選択の精度のみ低下します。",
       "agree": "同意して開始"
-    }
+    },
+    "emptyStateTitle": "AIに質問してみましょう",
+    "emptyStateHint": "@でテーブルをメンションできます",
+    "ollamaNoApiKey": "OllamaはAPIキーが不要です。"
   },
   "history": {
     "title": "クエリ履歴",
@@ -450,5 +477,25 @@
     "deleteWarning": "この操作は元に戻せません。行はデータベースから完全に削除されます。",
     "andMoreRows": "他{{count}}行",
     "deleteRowsButton": "{{count}}行を削除"
+  },
+  "columnEdit": {
+    "title": "カラムを編集",
+    "name": "カラム名",
+    "type": "タイプ",
+    "length": "長さ",
+    "unsigned": "UNSIGNED",
+    "typeNumeric": "数値",
+    "typeString": "文字列",
+    "typeBinary": "バイナリ",
+    "typeDatetime": "日付/時刻",
+    "nullable": "NULLを許可",
+    "default": "デフォルト値",
+    "comment": "コメント",
+    "previewSql": "SQLプレビュー",
+    "save": "変更を保存",
+    "cancel": "キャンセル",
+    "saving": "保存中...",
+    "success": "カラムを更新しました",
+    "error": "カラムの更新に失敗しました"
   }
 }

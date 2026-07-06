@@ -59,7 +59,7 @@
     "columns": "컬럼",
     "indexes": "인덱스",
     "noIndexes": "인덱스 없음",
-    "nonUnique": "Non_unique",
+    "nonUnique": "Non-unique",
     "keyName": "Key_name",
     "seqInIndex": "Seq_in_index",
     "columnName": "Column_name",
@@ -95,7 +95,8 @@
     "copyRow": "행 복사",
     "reorderingColumn": "컬럼 순서 변경 중...",
     "duplicateField": "필드 복제",
-    "deleteField": "필드 삭제"
+    "deleteField": "필드 삭제",
+    "unique": "Unique"
   },
   "database": {
     "select": "데이터베이스 선택",
@@ -436,7 +437,10 @@
       "description": "데이터베이스 스키마 학습을 위해 테이블·컬럼 구조(이름, 타입, 코멘트)가 Google Gemini File Search에 업로드되어 저장됩니다.",
       "note": "테이블 데이터(행)는 업로드되지 않습니다. 동의하지 않아도 AI는 사용할 수 있으며, 테이블 선택 정확도만 낮아집니다.",
       "agree": "동의하고 시작"
-    }
+    },
+    "emptyStateTitle": "AI에게 질문해보세요",
+    "emptyStateHint": "@로 테이블을 멘션할 수 있습니다",
+    "ollamaNoApiKey": "Ollama는 API 키가 필요하지 않습니다."
   },
   "queryError": {
     "code": "에러",

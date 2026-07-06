@@ -40,5 +40,5 @@ jobs:
         run: npm run typecheck
       - name: Lint
         run: npm run lint
-      - name: i18n parity (warn-only until locales are backfilled)
-        run: npm run check:i18n -- --warn-only
+      - name: i18n parity
+        run: npm run check:i18n

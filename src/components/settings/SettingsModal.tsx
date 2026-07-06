@@ -640,7 +640,7 @@ export function SettingsModal({ isOpen, onClose, defaultTab }: SettingsModalProp
                   className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2.5 text-base text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
                 <p className="mt-2 text-sm text-gray-500">
-                  Ollama does not require an API key.
+                  {t("ai.ollamaNoApiKey")}
                 </p>
               </div>
             </div>

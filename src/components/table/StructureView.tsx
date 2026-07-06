@@ -75,7 +75,7 @@ const COLUMN_HEADERS = [
 ];
 
 const INDEX_HEADERS = [
-  { key: 'unique', label: 'Unique', width: 70 },
+  { key: 'unique', labelKey: 'tableView.unique', width: 70 },
   { key: 'keyName', labelKey: 'tableView.keyName', width: 150 },
   { key: 'seqInIndex', labelKey: 'tableView.seqInIndex', width: 60 },
   { key: 'columnName', labelKey: 'tableView.columnName', width: 150 },
@@ -1162,7 +1162,7 @@ export function StructureView({
                       disabled={isSavingColumn}
                       options={[
                         {
-                          label: "Numeric",
+                          label: t("columnEdit.typeNumeric"),
                           options: [
                             { value: "TINYINT", label: "TINYINT" },
                             { value: "SMALLINT", label: "SMALLINT" },
@@ -1175,7 +1175,7 @@ export function StructureView({
                           ],
                         },
                         {
-                          label: "String",
+                          label: t("columnEdit.typeString"),
                           options: [
                             { value: "CHAR", label: "CHAR" },
                             { value: "VARCHAR", label: "VARCHAR" },
@@ -1187,7 +1187,7 @@ export function StructureView({
                           ],
                         },
                         {
-                          label: "Binary",
+                          label: t("columnEdit.typeBinary"),
                           options: [
                             { value: "BINARY", label: "BINARY" },
                             { value: "VARBINARY", label: "VARBINARY" },
@@ -1195,7 +1195,7 @@ export function StructureView({
                           ],
                         },
                         {
-                          label: "Date/Time",
+                          label: t("columnEdit.typeDatetime"),
                           options: [
                             { value: "DATE", label: "DATE" },
                             { value: "TIME", label: "TIME" },
@@ -1429,7 +1429,7 @@ export function StructureView({
                         className="relative text-left px-4 py-2 text-gray-400 font-medium whitespace-nowrap border-r border-gray-600 select-none"
                         style={{ width: `${width}px`, minWidth: `${MIN_COLUMN_WIDTH}px`, maxWidth: `${MAX_COLUMN_WIDTH}px` }}
                       >
-                        <span className="truncate">{header.label || t(header.labelKey!)}</span>
+                        <span className="truncate">{t(header.labelKey)}</span>
                         <div
                           className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500 transition-colors ${
                             resizingIndexColumn === header.key ? 'bg-blue-500' : ''
@@ -1462,7 +1462,7 @@ export function StructureView({
                           checked={!idx.non_unique}
                           readOnly
                           className="w-4 h-4 rounded border-gray-500 bg-gray-700 text-blue-500 cursor-default"
-                          title={idx.non_unique ? "Non-unique" : "Unique"}
+                          title={idx.non_unique ? t("tableView.nonUnique") : t("tableView.unique")}
                         />
                       </td>
                       <td

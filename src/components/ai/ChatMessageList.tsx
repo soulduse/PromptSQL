@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { ChatMessage, useAIStore } from "../../stores/aiStore";
 import ChatMessageItem from "./ChatMessage";
 import { ChatIcon } from "../common/Icons";
@@ -12,6 +13,7 @@ interface ChatMessageListProps {
 }
 
 export default function ChatMessageList({ messages, onEdit, onRetry, onDelete, onMentionClick }: ChatMessageListProps) {
+  const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const isUserScrollingRef = useRef(false);
@@ -71,9 +73,9 @@ export default function ChatMessageList({ messages, onEdit, onRetry, onDelete, o
       <div className="flex-1 flex items-center justify-center p-4">
         <div className="text-center text-gray-500">
           <ChatIcon className="w-12 h-12 mx-auto mb-3 text-gray-600" strokeWidth={1.5} />
-          <p className="text-sm">AI에게 질문해보세요</p>
+          <p className="text-sm">{t("ai.emptyStateTitle")}</p>
           <p className="text-xs mt-1 text-gray-600">
-            @로 테이블을 멘션할 수 있습니다
+            {t("ai.emptyStateHint")}
           </p>
         </div>
       </div>

@@ -21,7 +21,20 @@
     "encoding": "编码",
     "autoIncrement": "自增值",
     "indexes": "索引",
-    "columns": "列数"
+    "columns": "列数",
+    "type": "类型",
+    "createdAt": "创建时间",
+    "updatedAt": "更新时间",
+    "collation": "排序规则",
+    "numberOfRows": "行数",
+    "rowFormat": "行格式",
+    "avgRowLength": "平均行长度",
+    "maxDataSize": "最大数据大小",
+    "freeDataSize": "空闲数据大小",
+    "comments": "注释",
+    "noComment": "无注释",
+    "createSyntax": "建表语句",
+    "noCreateSyntax": "无可用的 CREATE TABLE 语句"
   },
   "tableView": {
     "structure": "结构",
@@ -46,7 +59,7 @@
     "columns": "列",
     "indexes": "索引",
     "noIndexes": "没有索引",
-    "nonUnique": "Non_unique",
+    "nonUnique": "Non-unique",
     "keyName": "Key_name",
     "seqInIndex": "Seq_in_index",
     "columnName": "Column_name",
@@ -82,7 +95,8 @@
     "copyRow": "复制行",
     "reorderingColumn": "正在调整列顺序...",
     "duplicateField": "复制字段",
-    "deleteField": "删除字段"
+    "deleteField": "删除字段",
+    "unique": "Unique"
   },
   "database": {
     "select": "选择数据库",
@@ -113,7 +127,13 @@
     "connect": "连接",
     "disconnect": "断开",
     "delete": "删除",
-    "passwordKeepHint": "留空以保留当前密码"
+    "passwordKeepHint": "留空以保留当前密码",
+    "new": "新建连接",
+    "edit": "编辑连接",
+    "connecting": "连接中...",
+    "confirmDeleteTitle": "删除连接",
+    "confirmDelete": "确定要删除此连接吗？",
+    "nameRequired": "请输入连接名称"
   },
   "query": {
     "editor": "查询编辑器",
@@ -173,13 +193,17 @@
     "optional": "可选",
     "create": "创建",
     "saving": "保存中...",
-    "dismiss": "稍后"
+    "dismiss": "稍后",
+    "edit": "编辑"
   },
   "welcome": {
     "title": "欢迎使用 PromptSQL",
     "subtitle": "MySQL 数据库管理工具",
     "getStarted": "添加新连接开始使用",
-    "newConnection": "新建连接"
+    "newConnection": "新建连接",
+    "savedConnections": "已保存的连接",
+    "noConnections": "暂无已保存的连接",
+    "description": "连接您的 MySQL 数据库即可开始。\nAI 将帮助您编写查询并探索数据。"
   },
   "newTab": {
     "title": "连接数据库",
@@ -393,7 +417,10 @@
       "description": "为了学习数据库架构，表和列的结构（名称、类型、注释）将被上传并存储到 Google Gemini File Search。",
       "note": "表数据（行）不会被上传。您也可以不同意 — AI 仍可使用，只是表选择的准确度会降低。",
       "agree": "同意并开始"
-    }
+    },
+    "emptyStateTitle": "向 AI 提问吧",
+    "emptyStateHint": "使用 @ 可以提及表",
+    "ollamaNoApiKey": "Ollama 无需 API 密钥。"
   },
   "history": {
     "title": "查询历史",
@@ -450,5 +477,25 @@
     "deleteWarning": "此操作无法撤销。行将从数据库中永久删除。",
     "andMoreRows": "及其他{{count}}行",
     "deleteRowsButton": "删除{{count}}行"
+  },
+  "columnEdit": {
+    "title": "编辑列",
+    "name": "列名",
+    "type": "类型",
+    "length": "长度",
+    "unsigned": "UNSIGNED",
+    "typeNumeric": "数值",
+    "typeString": "字符串",
+    "typeBinary": "二进制",
+    "typeDatetime": "日期/时间",
+    "nullable": "允许 NULL",
+    "default": "默认值",
+    "comment": "注释",
+    "previewSql": "SQL 预览",
+    "save": "保存更改",
+    "cancel": "取消",
+    "saving": "保存中...",
+    "success": "列更新成功",
+    "error": "列更新失败"
   }
 }

@@ -59,7 +59,7 @@
     "columns": "Columns",
     "indexes": "Indexes",
     "noIndexes": "No indexes",
-    "nonUnique": "Non_unique",
+    "nonUnique": "Non-unique",
     "keyName": "Key_name",
     "seqInIndex": "Seq_in_index",
     "columnName": "Column_name",
@@ -95,7 +95,8 @@
     "copyRow": "Copy Row",
     "reorderingColumn": "Reordering column...",
     "duplicateField": "Duplicate Field",
-    "deleteField": "Delete Field"
+    "deleteField": "Delete Field",
+    "unique": "Unique"
   },
   "database": {
     "select": "Select database",
@@ -436,7 +437,10 @@
       "description": "To learn your database schema, table and column structures (names, types, comments) will be uploaded to Google Gemini File Search and stored there.",
       "note": "Table data (rows) is not uploaded. You can proceed without this — the AI will still work, with less accurate table selection.",
       "agree": "Agree and start"
-    }
+    },
+    "emptyStateTitle": "Ask AI anything",
+    "emptyStateHint": "Mention tables with @",
+    "ollamaNoApiKey": "Ollama does not require an API key."
   },
   "queryError": {
     "code": "Error",
