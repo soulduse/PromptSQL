@@ -60,20 +60,13 @@ export function ConfirmModal({
       initialFocusRef={requireConfirmation ? inputRef : undefined}
       footer={
         <>
-          <button
-            onClick={onCancel}
-            className="px-4 py-2 text-sm text-gray-300 hover:text-white bg-gray-700 hover:bg-gray-600 rounded-md transition"
-          >
+          <button onClick={onCancel} className="btn-secondary">
             {cancelLabel || t("common.cancel")}
           </button>
           <button
             onClick={handleConfirm}
             disabled={isConfirmDisabled}
-            className={`px-4 py-2 text-sm rounded-md transition ${
-              danger
-                ? "bg-red-600 hover:bg-red-500 text-white disabled:bg-red-600/50 disabled:text-white/50"
-                : "bg-blue-600 hover:bg-blue-500 text-white disabled:bg-blue-600/50 disabled:text-white/50"
-            } disabled:cursor-not-allowed`}
+            className={danger ? "btn-danger" : "btn-primary"}
           >
             {confirmLabel || t("common.confirm")}
           </button>
@@ -81,11 +74,11 @@ export function ConfirmModal({
       }
     >
       <div className="px-6 py-4" onKeyDown={handleKeyDown}>
-        <p className="text-gray-300 text-sm whitespace-pre-wrap">{message}</p>
+        <p className="text-ink text-sm whitespace-pre-wrap">{message}</p>
 
         {requireConfirmation && (
           <div className="mt-4">
-            <label className="block text-sm text-gray-400 mb-2">
+            <label className="block text-sm text-ink-muted mb-2">
               {t("tableMenu.typeTableName")}
             </label>
             <input
@@ -94,7 +87,7 @@ export function ConfirmModal({
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               placeholder={confirmationText}
-              className="w-full px-3 py-2 bg-gray-900 border border-gray-600 rounded-md text-white text-sm focus:outline-none focus:border-blue-500"
+              className="w-full px-3 py-2 bg-surface-0 border border-line-strong rounded-md text-ink-strong text-sm focus:outline-none focus:border-blue-500"
             />
           </div>
         )}

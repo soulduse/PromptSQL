@@ -182,8 +182,10 @@ export function Modal({
 
   if (!isOpen) return null;
 
+  // 토큰 기반 스킨 — index.css의 라이트 !important 오버라이드 없이
+  // CSS 변수만으로 양 테마 대응
   const skinClasses = skin
-    ? "bg-gray-800 rounded-lg shadow-xl border border-gray-700"
+    ? "bg-surface-1 rounded-lg shadow-xl border border-line"
     : "";
 
   return createPortal(
@@ -194,7 +196,7 @@ export function Modal({
     >
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className="absolute inset-0 bg-overlay backdrop-blur-sm"
         onClick={closeOnBackdrop ? onClose : undefined}
       />
 
@@ -205,10 +207,10 @@ export function Modal({
         className={`relative w-full ${SIZE_CLASSES[size]} mx-4 outline-none ${skinClasses} ${panelClassName}`}
       >
         {title != null && (
-          <div className="px-6 py-4 border-b border-gray-700 flex items-center justify-between">
+          <div className="px-6 py-4 border-b border-line flex items-center justify-between">
             <h3
               className={`text-lg font-semibold ${
-                tone === "danger" ? "text-red-400" : "text-white"
+                tone === "danger" ? "text-danger" : "text-ink-strong"
               }`}
             >
               {title}
@@ -216,7 +218,7 @@ export function Modal({
             {showCloseButton && (
               <button
                 onClick={onClose}
-                className="text-gray-400 hover:text-white transition"
+                className="text-ink-muted hover:text-ink-strong transition"
                 aria-label="Close"
               >
                 <CloseIcon className="w-5 h-5" />
@@ -228,7 +230,7 @@ export function Modal({
         {children}
 
         {footer != null && (
-          <div className="px-6 py-4 border-t border-gray-700 flex justify-end gap-3">
+          <div className="px-6 py-4 border-t border-line flex justify-end gap-3">
             {footer}
           </div>
         )}

@@ -9,6 +9,7 @@ import { HistorySearchModal } from "./components/history/HistorySearchModal";
 import { TableList } from "./components/schema/TableList";
 import { TableInfoPanel } from "./components/schema/TableInfoPanel";
 import { ResizableSidebar } from "./components/common/ResizableSidebar";
+import { Modal } from "./components/common/Modal";
 import { TableViewTabs } from "./components/table/TableViewTabs";
 import { DatabaseExportModal } from "./components/schema/DatabaseExportModal";
 import { AddDatabaseModal } from "./components/database/AddDatabaseModal";
@@ -558,8 +559,8 @@ function App() {
 
       {/* Close Confirmation Dialog */}
       {showCloseConfirm && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50">
-          <div className="bg-gray-800 border border-gray-600 rounded-lg shadow-xl p-6 max-w-sm mx-4">
+        <Modal isOpen onClose={() => setShowCloseConfirm(false)} size="sm">
+          <div className="p-6">
             <h3 className="text-lg font-semibold text-white mb-2">
               {t("app.closeConfirmTitle", "앱을 종료하시겠습니까?")}
             </h3>
@@ -583,7 +584,7 @@ function App() {
               </button>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );
