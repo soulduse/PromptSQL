@@ -38,6 +38,14 @@ pub const OPENAI_MODELS: &[ModelDef] = &[
 ];
 
 pub const ANTHROPIC_MODELS: &[ModelDef] = &[
+    // Mythos-class 최상위 티어 (2026-06 GA). thinking 상시 활성이지만
+    // 본 앱은 thinking/샘플링 파라미터를 보내지 않으므로 그대로 호환
+    ModelDef {
+        id: "claude-fable-5",
+        name: "Claude Fable 5",
+        max_tokens: 1000000,
+        light: false,
+    },
     ModelDef {
         id: "claude-opus-4-8",
         name: "Claude Opus 4.8",
