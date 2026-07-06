@@ -1,9 +1,12 @@
 use mysql_async::prelude::*;
-use mysql_async::{Opts, Pool, Row, Value, consts::ColumnType};
+use mysql_async::{Opts, OptsBuilder, Pool, Row, Value, consts::ColumnType};
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
 use tokio::sync::Mutex;
+
+use super::sql_guard;
 
 /// Convert MySQL ColumnType enum to short, readable type name
 fn column_type_to_short_name(ct: ColumnType) -> &'static str {
@@ -241,7 +244,7 @@ impl ConnectionManager {
 
     pub async fn execute_query(&self, id: &str, database: Option<&str>, query: &str) -> Result<QueryResult, String> {
         let pool = self.pools.get(id).ok_or("Connection not found")?;
-        execute_query_impl(pool, database, query).await
+        execute_query_impl(pool, database, query, Some(id)).await
     }
 
     pub async fn get_databases(&self, id: &str) -> Result<Vec<String>, String> {
@@ -262,12 +265,11 @@ impl ConnectionManager {
 
         let mut conn = pool.get_conn().await.map_err(|e| format!("Failed to get connection: {}", e))?;
 
-        let query = format!(
-            "SELECT CAST(TABLE_NAME AS CHAR) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = '{}' ORDER BY TABLE_NAME",
-            escape_string(database)
-        );
         let tables: Vec<String> = conn
-            .query(&query)
+            .exec(
+                "SELECT CAST(TABLE_NAME AS CHAR) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME",
+                (database,),
+            )
             .await
             .map_err(|e| format!("Failed to get tables: {}", e))?;
 
@@ -279,8 +281,7 @@ impl ConnectionManager {
 
         let mut conn = pool.get_conn().await.map_err(|e| format!("Failed to get connection: {}", e))?;
 
-        let query = format!(
-            r#"SELECT
+        let query = r#"SELECT
                 CAST(COLUMN_NAME AS CHAR) as field,
                 CAST(COLUMN_TYPE AS CHAR) as column_type,
                 CAST(IS_NULLABLE AS CHAR) as is_nullable,
@@ -291,12 +292,10 @@ impl ConnectionManager {
                 CAST(COLLATION_NAME AS CHAR) as collation,
                 CAST(COLUMN_COMMENT AS CHAR) as column_comment
             FROM INFORMATION_SCHEMA.COLUMNS
-            WHERE TABLE_SCHEMA = '{}' AND TABLE_NAME = '{}'
-            ORDER BY ORDINAL_POSITION"#,
-            escape_string(database), escape_string(table)
-        );
+            WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
+            ORDER BY ORDINAL_POSITION"#;
 
-        let rows: Vec<Row> = conn.query(&query).await
+        let rows: Vec<Row> = conn.exec(query, (database, table)).await
             .map_err(|e| format!("Failed to get table schema: {}", e))?;
 
         let columns: Vec<ColumnInfo> = rows
@@ -322,8 +321,7 @@ impl ConnectionManager {
 
         let mut conn = pool.get_conn().await.map_err(|e| format!("Failed to get connection: {}", e))?;
 
-        let query = format!(
-            r#"SELECT
+        let query = r#"SELECT
                 CAST(CREATE_TIME AS CHAR) as created,
                 CAST(UPDATE_TIME AS CHAR) as updated,
                 CAST(ENGINE AS CHAR) as engine,
@@ -338,29 +336,27 @@ impl ConnectionManager {
                 AUTO_INCREMENT as auto_increment,
                 CAST(TABLE_COMMENT AS CHAR) as table_comment
             FROM INFORMATION_SCHEMA.TABLES
-            WHERE TABLE_SCHEMA = '{}' AND TABLE_NAME = '{}'"#,
-            escape_string(database), escape_string(table)
-        );
+            WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?"#;
 
-        let row: Row = conn.query_first(&query).await
+        let row: Row = conn.exec_first(query, (database, table)).await
             .map_err(|e| format!("Failed to get table info: {}", e))?
             .ok_or("Table not found")?;
 
         // Get column count
-        let column_count_query = format!(
-            "SELECT COUNT(*) as cnt FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = '{}' AND TABLE_NAME = '{}'",
-            escape_string(database), escape_string(table)
-        );
-        let column_count: i64 = conn.query_first(&column_count_query).await
+        let column_count: i64 = conn.exec_first(
+                "SELECT COUNT(*) as cnt FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?",
+                (database, table),
+            )
+            .await
             .map_err(|e| format!("Failed to get column count: {}", e))?
             .unwrap_or(0);
 
         // Get index count
-        let index_count_query = format!(
-            "SELECT COUNT(DISTINCT INDEX_NAME) as cnt FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = '{}' AND TABLE_NAME = '{}'",
-            escape_string(database), escape_string(table)
-        );
-        let index_count: i64 = conn.query_first(&index_count_query).await
+        let index_count: i64 = conn.exec_first(
+                "SELECT COUNT(DISTINCT INDEX_NAME) as cnt FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?",
+                (database, table),
+            )
+            .await
             .map_err(|e| format!("Failed to get index count: {}", e))?
             .unwrap_or(0);
 
@@ -392,8 +388,7 @@ impl ConnectionManager {
 
         let mut conn = pool.get_conn().await.map_err(|e| format!("Failed to get connection: {}", e))?;
 
-        let query = format!(
-            r#"SELECT
+        let query = r#"SELECT
                 NON_UNIQUE as non_unique,
                 CAST(INDEX_NAME AS CHAR) as key_name,
                 SEQ_IN_INDEX as seq_in_index,
@@ -404,12 +399,10 @@ impl ConnectionManager {
                 CAST(PACKED AS CHAR) as packed,
                 CAST(INDEX_COMMENT AS CHAR) as index_comment
             FROM INFORMATION_SCHEMA.STATISTICS
-            WHERE TABLE_SCHEMA = '{}' AND TABLE_NAME = '{}'
-            ORDER BY INDEX_NAME, SEQ_IN_INDEX"#,
-            escape_string(database), escape_string(table)
-        );
+            WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
+            ORDER BY INDEX_NAME, SEQ_IN_INDEX"#;
 
-        let rows: Vec<Row> = conn.query(&query).await
+        let rows: Vec<Row> = conn.exec(query, (database, table)).await
             .map_err(|e| format!("Failed to get table indexes: {}", e))?;
 
         let indexes: Vec<IndexInfo> = rows
@@ -435,7 +428,11 @@ impl ConnectionManager {
 
         let mut conn = pool.get_conn().await.map_err(|e| format!("Failed to get connection: {}", e))?;
 
-        let query = format!("SHOW CREATE TABLE `{}`.`{}`", database, table);
+        let query = format!(
+            "SHOW CREATE TABLE {}.{}",
+            sql_guard::quote_ident(database),
+            sql_guard::quote_ident(table)
+        );
         let row: Row = conn.query_first(&query).await
             .map_err(|e| format!("Failed to get CREATE TABLE: {}", e))?
             .ok_or("Table not found")?;
@@ -451,18 +448,15 @@ impl ConnectionManager {
 
         let mut conn = pool.get_conn().await.map_err(|e| format!("Failed to get connection: {}", e))?;
 
-        let query = format!(
-            r#"SELECT
+        let query = r#"SELECT
                 TABLE_ROWS as rows_count,
                 DATA_LENGTH as data_length,
                 INDEX_LENGTH as index_length,
                 CAST(ENGINE AS CHAR) as engine
             FROM INFORMATION_SCHEMA.TABLES
-            WHERE TABLE_SCHEMA = '{}' AND TABLE_NAME = '{}'"#,
-            escape_string(database), escape_string(table)
-        );
+            WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?"#;
 
-        let row: Row = conn.query_first(&query).await
+        let row: Row = conn.exec_first(query, (database, table)).await
             .map_err(|e| format!("Failed to get table summary: {}", e))?
             .ok_or("Table not found")?;
 
@@ -485,7 +479,7 @@ impl ConnectionManager {
 
         let mut conn = pool.get_conn().await.map_err(|e| format!("Failed to get connection: {}", e))?;
 
-        let sql = generate_alter_column_sql(database, table, request);
+        let sql = generate_alter_column_sql(database, table, request)?;
 
         conn.query_drop(&sql).await
             .map_err(|e| format!("Failed to update column: {}", e))?;
@@ -495,37 +489,78 @@ impl ConnectionManager {
 
     pub async fn cancel_query(&self, id: &str) -> Result<u32, String> {
         let pool = self.pools.get(id).ok_or("Connection not found")?;
-        cancel_query_impl(pool).await
+        cancel_query_impl(pool, id).await
     }
 }
 
-/// Cancel running queries on a pool (standalone function that doesn't require manager lock)
-pub async fn cancel_query_on_pool(pool: &Pool) -> Result<u32, String> {
-    cancel_query_impl(pool).await
+/// 실행 중인 쿼리의 (앱 연결 ID → 서버 스레드 ID 목록) 레지스트리.
+///
+/// 취소는 이 레지스트리에 등록된 자기 커넥션만 KILL 한다 —
+/// 서버 PROCESSLIST 전체를 대상으로 하면 같은 서버를 쓰는
+/// 다른 클라이언트의 쿼리까지 죽인다.
+static ACTIVE_QUERY_THREADS: Lazy<StdMutex<HashMap<String, Vec<u32>>>> =
+    Lazy::new(|| StdMutex::new(HashMap::new()));
+
+/// 실행 중 쿼리를 레지스트리에 등록하고 drop 시 해제하는 RAII 가드.
+struct ActiveQueryGuard {
+    key: String,
+    thread_id: u32,
 }
 
-async fn cancel_query_impl(pool: &Pool) -> Result<u32, String> {
+impl ActiveQueryGuard {
+    fn register(key: &str, thread_id: u32) -> Self {
+        let mut map = ACTIVE_QUERY_THREADS
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        map.entry(key.to_string()).or_default().push(thread_id);
+        Self {
+            key: key.to_string(),
+            thread_id,
+        }
+    }
+}
+
+impl Drop for ActiveQueryGuard {
+    fn drop(&mut self) {
+        let mut map = ACTIVE_QUERY_THREADS
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(ids) = map.get_mut(&self.key) {
+            ids.retain(|id| *id != self.thread_id);
+            if ids.is_empty() {
+                map.remove(&self.key);
+            }
+        }
+    }
+}
+
+fn active_thread_ids(key: &str) -> Vec<u32> {
+    ACTIVE_QUERY_THREADS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .get(key)
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// Cancel running queries on a pool (standalone function that doesn't require manager lock)
+pub async fn cancel_query_on_pool(pool: &Pool, connection_key: &str) -> Result<u32, String> {
+    cancel_query_impl(pool, connection_key).await
+}
+
+async fn cancel_query_impl(pool: &Pool, connection_key: &str) -> Result<u32, String> {
+    let thread_ids = active_thread_ids(connection_key);
+    if thread_ids.is_empty() {
+        return Ok(0);
+    }
+
     let mut conn = pool.get_conn().await.map_err(|e| format!("Failed to get connection: {}", e))?;
 
-    let rows: Vec<Row> = conn.query(
-        r#"SELECT ID, TIME, INFO
-           FROM INFORMATION_SCHEMA.PROCESSLIST
-           WHERE COMMAND IN ('Query', 'Execute')
-           AND INFO IS NOT NULL
-           AND INFO NOT LIKE '%INFORMATION_SCHEMA.PROCESSLIST%'
-           ORDER BY TIME DESC"#
-    ).await.map_err(|e| format!("Failed to get process list: {}", e))?;
-
     let mut killed_count = 0u32;
-
-    for row in rows {
-        let process_id: u64 = row.get("ID").unwrap_or(0);
-
-        if process_id > 0 {
-            let kill_sql = format!("KILL QUERY {}", process_id);
-            if conn.query_drop(&kill_sql).await.is_ok() {
-                killed_count += 1;
-            }
+    for thread_id in thread_ids {
+        // thread_id는 서버가 발급한 숫자라 인젝션 표면이 없다
+        if conn.query_drop(format!("KILL QUERY {}", thread_id)).await.is_ok() {
+            killed_count += 1;
         }
     }
 
@@ -533,38 +568,38 @@ async fn cancel_query_impl(pool: &Pool) -> Result<u32, String> {
 }
 
 /// Execute query on a pool (standalone function that doesn't require manager lock)
+///
+/// `cancel_key`가 주어지면 실행 동안 취소 레지스트리에 등록되어
+/// `cancel_query_on_pool(pool, key)`로 중단할 수 있다.
 pub async fn execute_query_on_pool(
     pool: &Pool,
     database: Option<&str>,
     query: &str,
+    cancel_key: Option<&str>,
 ) -> Result<QueryResult, String> {
-    execute_query_impl(pool, database, query).await
+    execute_query_impl(pool, database, query, cancel_key).await
 }
 
 async fn execute_query_impl(
     pool: &Pool,
     database: Option<&str>,
     query: &str,
+    cancel_key: Option<&str>,
 ) -> Result<QueryResult, String> {
     let start = std::time::Instant::now();
 
     let mut conn = pool.get_conn().await
         .map_err(|e| format!("Failed to acquire connection: {}", e))?;
 
+    let _cancel_guard = cancel_key.map(|key| ActiveQueryGuard::register(key, conn.id()));
+
     // Execute USE database
     if let Some(db) = database {
-        conn.query_drop(format!("USE `{}`", db)).await
+        conn.query_drop(format!("USE {}", sql_guard::quote_ident(db))).await
             .map_err(|e| format!("Failed to select database: {}", e))?;
     }
 
-    // Check if it's a SELECT query (strip leading comments first)
-    let stripped = strip_leading_sql_comments(query);
-    let trimmed = stripped.to_uppercase();
-    if trimmed.starts_with("SELECT")
-        || trimmed.starts_with("SHOW")
-        || trimmed.starts_with("DESCRIBE")
-        || trimmed.starts_with("EXPLAIN")
-    {
+    if sql_guard::is_read_only_statement(query) {
         // Execute query and get result with metadata
         let mut result = conn.query_iter(query).await
             .map_err(|e| format!("Query failed: {}", e))?;
@@ -650,105 +685,72 @@ pub fn generate_alter_column_sql(
     database: &str,
     table: &str,
     request: &UpdateColumnRequest,
-) -> String {
+) -> Result<String, String> {
+    sql_guard::validate_column_type(&request.column_type)?;
+
     let default_clause = match &request.default_value {
         Some(val) if !val.is_empty() => {
             if val.to_uppercase() == "NULL"
-                || val.to_uppercase() == "CURRENT_TIMESTAMP"
                 || val.to_uppercase().starts_with("CURRENT_TIMESTAMP")
                 || val.starts_with('(')
             {
                 format!(" DEFAULT {}", val)
             } else {
-                format!(" DEFAULT '{}'", val.replace('\'', "''"))
+                format!(" DEFAULT '{}'", sql_guard::escape_string_literal(val))
             }
         }
         _ => String::new(),
     };
 
     let comment_clause = match &request.comment {
-        Some(c) if !c.is_empty() => format!(" COMMENT '{}'", c.replace('\'', "''")),
+        Some(c) if !c.is_empty() => {
+            format!(" COMMENT '{}'", sql_guard::escape_string_literal(c))
+        }
         _ => String::new(),
     };
 
+    let nullability = if request.is_nullable { " NULL" } else { " NOT NULL" };
+
     if let Some(new_name) = &request.new_column_name {
         if new_name != &request.column_name {
-            return format!(
-                "ALTER TABLE `{}`.`{}` CHANGE COLUMN `{}` `{}` {}{}{}{}",
-                database,
-                table,
-                request.column_name,
-                new_name,
+            return Ok(format!(
+                "ALTER TABLE {}.{} CHANGE COLUMN {} {} {}{}{}{}",
+                sql_guard::quote_ident(database),
+                sql_guard::quote_ident(table),
+                sql_guard::quote_ident(&request.column_name),
+                sql_guard::quote_ident(new_name),
                 request.column_type,
-                if request.is_nullable { " NULL" } else { " NOT NULL" },
+                nullability,
                 default_clause,
                 comment_clause
-            );
+            ));
         }
     }
 
-    format!(
-        "ALTER TABLE `{}`.`{}` MODIFY COLUMN `{}` {}{}{}{}",
-        database,
-        table,
-        request.column_name,
+    Ok(format!(
+        "ALTER TABLE {}.{} MODIFY COLUMN {} {}{}{}{}",
+        sql_guard::quote_ident(database),
+        sql_guard::quote_ident(table),
+        sql_guard::quote_ident(&request.column_name),
         request.column_type,
-        if request.is_nullable { " NULL" } else { " NOT NULL" },
+        nullability,
         default_clause,
         comment_clause
-    )
+    ))
 }
 
 fn build_opts(config: &ConnectionConfig) -> Opts {
-    // Build MySQL connection URL
-    let db_part = config.database.as_ref()
-        .filter(|db| !db.is_empty())
-        .map(|db| format!("/{}", db))
-        .unwrap_or_default();
+    // OptsBuilder는 URL 파싱을 거치지 않으므로 특수문자 비밀번호로
+    // 패닉하지 않는다 (기존 Opts::from_url().expect() 대체)
+    let db_name = config.database.as_ref().filter(|db| !db.is_empty()).cloned();
 
-    let url = format!(
-        "mysql://{}:{}@{}:{}{}",
-        urlencoding::encode(&config.user),
-        urlencoding::encode(&config.password),
-        config.host,
-        config.port,
-        db_part
-    );
-
-    Opts::from_url(&url).expect("Failed to parse MySQL URL")
-}
-
-fn escape_string(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('\'', "\\'")
-}
-
-/// Strip leading SQL comments (-- and /* */) from query to find the actual statement type
-fn strip_leading_sql_comments(query: &str) -> &str {
-    let mut s = query.trim();
-    loop {
-        // Skip single-line comments (-- ...)
-        if s.starts_with("--") {
-            if let Some(newline_pos) = s.find('\n') {
-                s = s[newline_pos + 1..].trim_start();
-                continue;
-            } else {
-                // Entire remaining string is a comment
-                return "";
-            }
-        }
-        // Skip multi-line comments (/* ... */)
-        if s.starts_with("/*") {
-            if let Some(end_pos) = s.find("*/") {
-                s = s[end_pos + 2..].trim_start();
-                continue;
-            } else {
-                // Unclosed comment
-                return "";
-            }
-        }
-        break;
-    }
-    s
+    OptsBuilder::default()
+        .ip_or_hostname(config.host.clone())
+        .tcp_port(config.port)
+        .user(Some(config.user.clone()))
+        .pass(Some(config.password.clone()))
+        .db_name(db_name)
+        .into()
 }
 
 // Convert 16 bytes to UUID format string

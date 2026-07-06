@@ -164,7 +164,7 @@ impl RAGManager {
             Ok(path) => {
                 match serde_json::to_string_pretty(&state) {
                     Ok(content) => {
-                        if let Err(e) = fs::write(&path, content) {
+                        if let Err(e) = crate::storage::write_atomic(&path, &content) {
                             log::error!("Failed to save RAG state: {}", e);
                         } else {
                             log::debug!("Saved RAG state to {:?}", path);

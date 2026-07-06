@@ -85,10 +85,7 @@ fn save_history(history: &[QueryHistory]) -> Result<(), String> {
     let content = serde_json::to_string_pretty(history)
         .map_err(|e| format!("Failed to serialize history: {}", e))?;
 
-    fs::write(&file_path, content)
-        .map_err(|e| format!("Failed to write history file: {}", e))?;
-
-    Ok(())
+    super::write_atomic(&file_path, &content)
 }
 
 /// Add a new query to history
@@ -201,10 +198,7 @@ fn save_groups(groups: &[HistoryGroup]) -> Result<(), String> {
     let content = serde_json::to_string_pretty(groups)
         .map_err(|e| format!("Failed to serialize groups: {}", e))?;
 
-    fs::write(&file_path, content)
-        .map_err(|e| format!("Failed to write groups file: {}", e))?;
-
-    Ok(())
+    super::write_atomic(&file_path, &content)
 }
 
 /// Create a new history group

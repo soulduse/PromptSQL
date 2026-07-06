@@ -14,6 +14,15 @@ const CONNECTIONS_FILE: &str = "connections.json";
 static PASSWORD_CACHE: Lazy<RwLock<HashMap<String, String>>> =
     Lazy::new(|| RwLock::new(HashMap::new()));
 
+/// 캐시 락 poison 복구 — 캐시는 keychain의 사본일 뿐이라 손상돼도 안전.
+fn cache_read() -> std::sync::RwLockReadGuard<'static, HashMap<String, String>> {
+    PASSWORD_CACHE.read().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn cache_write() -> std::sync::RwLockWriteGuard<'static, HashMap<String, String>> {
+    PASSWORD_CACHE.write().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 /// Connection metadata stored in JSON file (without password)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoredConnection {
@@ -85,10 +94,7 @@ pub fn save_connections(connections: &[StoredConnection]) -> Result<(), String> 
     let content = serde_json::to_string_pretty(connections)
         .map_err(|e| format!("Failed to serialize connections: {}", e))?;
 
-    fs::write(&file_path, content)
-        .map_err(|e| format!("Failed to write connections file: {}", e))?;
-
-    Ok(())
+    super::write_atomic(&file_path, &content)
 }
 
 /// Store password in macOS Keychain and update cache
@@ -100,9 +106,7 @@ pub fn store_password(connection_id: &str, password: &str) -> Result<(), String>
         .map_err(|e| format!("Failed to store password in keychain: {}", e))?;
 
     // Update cache
-    if let Ok(mut cache) = PASSWORD_CACHE.write() {
-        cache.insert(connection_id.to_string(), password.to_string());
-    }
+    cache_write().insert(connection_id.to_string(), password.to_string());
 
     Ok(())
 }
@@ -110,10 +114,8 @@ pub fn store_password(connection_id: &str, password: &str) -> Result<(), String>
 /// Get password from cache first, fallback to Keychain
 pub fn get_password(connection_id: &str) -> Result<String, String> {
     // Check cache first
-    if let Ok(cache) = PASSWORD_CACHE.read() {
-        if let Some(password) = cache.get(connection_id) {
-            return Ok(password.clone());
-        }
+    if let Some(password) = cache_read().get(connection_id) {
+        return Ok(password.clone());
     }
 
     // Not in cache, access Keychain
@@ -124,9 +126,7 @@ pub fn get_password(connection_id: &str) -> Result<String, String> {
         .map_err(|e| format!("Failed to get password from keychain: {}", e))?;
 
     // Update cache
-    if let Ok(mut cache) = PASSWORD_CACHE.write() {
-        cache.insert(connection_id.to_string(), password.clone());
-    }
+    cache_write().insert(connection_id.to_string(), password.clone());
 
     Ok(password)
 }
@@ -140,9 +140,7 @@ pub fn delete_password(connection_id: &str) -> Result<(), String> {
     let _ = entry.delete_credential();
 
     // Update cache
-    if let Ok(mut cache) = PASSWORD_CACHE.write() {
-        cache.remove(connection_id);
-    }
+    cache_write().remove(connection_id);
 
     Ok(())
 }

@@ -102,10 +102,7 @@ pub fn save_conversation(conversation: &Conversation) -> Result<(), String> {
     let content = serde_json::to_string_pretty(conversation)
         .map_err(|e| format!("Failed to serialize conversation: {}", e))?;
 
-    fs::write(&file_path, content)
-        .map_err(|e| format!("Failed to write conversation file: {}", e))?;
-
-    Ok(())
+    crate::storage::write_atomic(&file_path, &content)
 }
 
 /// Load conversation from file

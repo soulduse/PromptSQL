@@ -14,6 +14,16 @@ const API_KEYS_KEY: &str = "api_keys";
 static API_KEY_CACHE: Lazy<RwLock<Option<HashMap<String, String>>>> =
     Lazy::new(|| RwLock::new(None));
 
+/// RwLock read with poison recovery — 캐시 데이터는 손상돼도 keychain에서
+/// 다시 읽을 수 있으므로 panic 전파 대신 복구한다.
+fn cache_read() -> std::sync::RwLockReadGuard<'static, Option<HashMap<String, String>>> {
+    API_KEY_CACHE.read().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn cache_write() -> std::sync::RwLockWriteGuard<'static, Option<HashMap<String, String>>> {
+    API_KEY_CACHE.write().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 /// AI configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AIConfig {
@@ -65,13 +75,13 @@ fn save_keys_to_keychain(keys: &HashMap<String, String>) -> Result<(), String> {
 /// Ensure cache is initialized
 fn ensure_cache_initialized() {
     let needs_init = {
-        let cache = API_KEY_CACHE.read().unwrap();
+        let cache = cache_read();
         cache.is_none()
     };
 
     if needs_init {
         let keys = load_keys_from_keychain();
-        let mut cache = API_KEY_CACHE.write().unwrap();
+        let mut cache = cache_write();
         *cache = Some(keys);
     }
 }
@@ -83,7 +93,7 @@ pub fn store_api_key(provider: &ProviderType, api_key: &str) -> Result<(), Strin
     let provider_name = provider.to_string().to_lowercase();
 
     // Update cache
-    let mut cache = API_KEY_CACHE.write().unwrap();
+    let mut cache = cache_write();
     let keys = cache.get_or_insert_with(HashMap::new);
     keys.insert(provider_name, api_key.to_string());
 
@@ -97,7 +107,7 @@ pub fn get_api_key(provider: &ProviderType) -> Result<String, String> {
 
     let provider_name = provider.to_string().to_lowercase();
 
-    let cache = API_KEY_CACHE.read().unwrap();
+    let cache = cache_read();
     if let Some(keys) = cache.as_ref() {
         if let Some(key) = keys.get(&provider_name) {
             return Ok(key.clone());
@@ -114,7 +124,7 @@ pub fn delete_api_key(provider: &ProviderType) -> Result<(), String> {
     let provider_name = provider.to_string().to_lowercase();
 
     // Update cache
-    let mut cache = API_KEY_CACHE.write().unwrap();
+    let mut cache = cache_write();
     if let Some(keys) = cache.as_mut() {
         keys.remove(&provider_name);
         // Save to keychain
@@ -193,7 +203,7 @@ pub fn migrate_old_keys() {
         if save_keys_to_keychain(&migrated_keys).is_ok() {
             log::info!("Migration complete");
             // Update cache
-            let mut cache = API_KEY_CACHE.write().unwrap();
+            let mut cache = cache_write();
             *cache = Some(migrated_keys);
         }
     } else {

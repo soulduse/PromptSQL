@@ -93,7 +93,7 @@ pub async fn execute_query(
     let pool = pool.ok_or("Connection not found")?;
 
     // Execute query on the cloned pool without holding the manager lock
-    crate::db::execute_query_on_pool(&pool, database.as_deref(), &query).await
+    crate::db::execute_query_on_pool(&pool, database.as_deref(), &query, Some(&connection_id)).await
 }
 
 #[tauri::command]
@@ -110,7 +110,7 @@ pub async fn cancel_query(
     let pool = pool.ok_or("Connection not found")?;
 
     // Execute cancel on the cloned pool without holding the manager lock
-    crate::db::cancel_query_on_pool(&pool).await
+    crate::db::cancel_query_on_pool(&pool, &connection_id).await
 }
 
 #[tauri::command]
@@ -234,7 +234,7 @@ pub fn preview_alter_column_sql(
     database: String,
     table: String,
     request: UpdateColumnRequest,
-) -> String {
+) -> Result<String, String> {
     generate_alter_column_sql(&database, &table, &request)
 }
 
@@ -847,8 +847,10 @@ async fn handle_auto_mode_message(
             }
         };
 
-        // Log the AI response for debugging
-        log::info!("AUTO mode AI response (iteration {}): {}", iteration, &ai_response[..std::cmp::min(500, ai_response.len())]);
+        // Log the AI response for debugging (char 단위 절단 — 바이트 슬라이스는
+        // 멀티바이트 경계에서 패닉)
+        let response_preview: String = ai_response.chars().take(500).collect();
+        log::info!("AUTO mode AI response (iteration {}): {}", iteration, response_preview);
         log::debug!("AUTO mode AI response full length: {} chars", ai_response.len());
 
         // Check for <auto_query> tag
@@ -1127,7 +1129,7 @@ async fn execute_auto_query(
     };
 
     // Execute query
-    match crate::db::execute_query_on_pool(&pool, Some(db), optimized_query).await {
+    match crate::db::execute_query_on_pool(&pool, Some(db), optimized_query, Some(conn_id)).await {
         Ok(result) => {
             let row_count = result.rows.len();
             AutoQueryResult {
